@@ -11,12 +11,11 @@ const LANE_TOP = 148, LANE_BOTTOM = 202;
 
 // barreras de neón repartidas por la pista (patrón fijo, sin azar)
 function neonHazards() {
-  const lanes = [158, 176, 194, 166, 188, 172, 198, 162];
+  const lanes = [158, 190, 172, 198, 162, 186];
   const out = [];
   let k = 0;
-  for (let x = 1460; x < 5760; x += 150) {
+  for (let x = 1860; x < 5760; x += 340) {
     out.push({ x: x, lane: lanes[k % lanes.length] });
-    if (k % 3 === 2) out.push({ x: x + 20, lane: lanes[(k + 4) % lanes.length] });
     k++;
   }
   return out;
@@ -51,7 +50,7 @@ const STAGES = [
     worldW: 6420,
     weapons: [{ x: 620, lane: 170 }, { x: 990, lane: 192 }, { x: 5640, lane: 182 }],
     hazards: neonHazards(), // barreras de neón del tramo de vuelo: saltarlas o esquivarlas
-    repairs: [{ x: 2500, lane: 176 }, { x: 3900, lane: 190 }, { x: 5100, lane: 170 }],
+    repairs: [{ x: 2300, lane: 182 }, { x: 3350, lane: 182 }, { x: 4400, lane: 182 }, { x: 5450, lane: 182 }],
     vehiclePad: { x: 1150, lane: 182 },
     dismountX: 5900,
     triggers: [
@@ -65,7 +64,7 @@ const STAGES = [
       { x: 700, name: '3 · AVANZA' },
       { x: 820, name: '4 · ENJAMBRE HOSTIL' },
       { x: 1120, name: '5 · MOTO-V A LA VISTA' },
-      { x: 1500, name: '6 · PISTA DE NEÓN\nSUS ESTELAS DAÑAN · CORTA SU PASO' },
+      { x: 1500, name: '6 · PISTA DE NEÓN\nSALTA O CAMBIA DE CARRIL' },
       { x: 3000, name: '7 · RED DE ESTELAS' },
       { x: 4500, name: '8 · TRAMO FINAL DE LA PISTA' },
       { x: 5980, name: '9 · JEFE: PLACA-0' },
@@ -1102,7 +1101,7 @@ class Game {
     this.repairs = (S.repairs || []).map(r => ({ x: r.x, lane: r.lane, taken: false }));
     this.riders = [];
     this.trails = [];
-    this.riderTimer = 70;
+    this.riderTimer = 160;
     this.cuts = 0;
     this.lastTrailX = -999;
     this.flight = 0;
@@ -1209,15 +1208,15 @@ class Game {
     this.riders.forEach(r => {
       if (r.dead) { r.t++; return; }
       r.t++;
-      r.x -= 3.1;
-      // se desvían hacia el carril del piloto para cerrarle el paso
-      if (p.vehicle) {
+      r.x -= 2.5;
+      // Avistan al piloto de lejos, pero fijan el carril al acercarse.
+      if (p.vehicle && r.x - p.x > 130) {
         const dl = p.lane - r.lane;
-        r.lane += Math.max(-0.45, Math.min(0.45, dl * 0.05));
+        r.lane += Math.max(-0.18, Math.min(0.18, dl * 0.025));
       }
       r.lane = Math.max(LANE_TOP + 4, Math.min(LANE_BOTTOM - 4, r.lane));
       if (Math.abs(r.x - r.lastX) >= 6) {
-        this.trails.push({ x: r.x + 14, lane: r.lane, life: 260, own: false });
+        this.trails.push({ x: r.x + 14, lane: r.lane, life: 100, own: false, rider: r });
         r.lastX = r.x;
       }
       if (!p.vehicle) return;
@@ -1237,18 +1236,10 @@ class Game {
     if (p.vehicle) {
       for (let i = 0; i < this.trails.length; i++) {
         const t = this.trails[i];
-        if (t.own) continue;
+        if (t.own || t.life <= 0 || p.vehicle.hitCooldown > 0) continue;
         if (Math.abs(t.x - p.x) < 9 && Math.abs(t.lane - p.lane) < 9 && p.z < 16) {
           this.trails.forEach(o => { if (!o.own && Math.abs(o.x - t.x) < 16 && Math.abs(o.lane - t.lane) < 12) o.life = 0; });
-          p.vehicle.integrity -= 14;
-          this.shake = 5;
-          this.audio.hit();
-          if (p.vehicle.integrity <= 0) {
-            p.vehicle = null;
-            p.turbo = false;
-            this.audio.weaponBreak();
-            this.showToast('MOTO-V DESTRUIDA · SIGUE A PIE', 120);
-          }
+          this.damageVehicle(6);
           break;
         }
       }
@@ -1258,7 +1249,7 @@ class Game {
   derez(r, byTrail) {
     r.dead = true; r.t = 0;
     // su estela se disuelve
-    this.trails.forEach(t => { if (!t.own && Math.abs(t.lane - r.lane) < 20 && t.x > r.x - 4 && t.x < r.x + 400) t.life = Math.min(t.life, 18); });
+    this.trails.forEach(t => { if (t.rider === r) t.life = 0; });
     this.audio.hit();
     if (byTrail) { this.cuts++; this.showToast('¡CORTE! RIVAL ELIMINADO', 70); }
   }
@@ -1287,20 +1278,28 @@ class Game {
     this.bossActive = true;
   }
 
+  // Una sola fuente de daño para la moto: ningún roce encadena impactos.
+  damageVehicle(dmg) {
+    const v = this.player.vehicle;
+    if (!v || v.hitCooldown > 0) return;
+    v.integrity = Math.max(0, v.integrity - dmg);
+    v.hitCooldown = 90; // 1,5 s para recuperar el control, también entre fuentes distintas
+    this.shake = 4;
+    this.audio.hit();
+    if (v.integrity <= 0) {
+      this.player.vehicle = null;
+      this.player.turbo = false;
+      this.audio.weaponBreak();
+      this.showToast('MOTO-V DESTRUIDA · SIGUE A PIE', 120);
+    }
+  }
+
   hitPlayer(dmg, fromX) {
     const p = this.player;
     if (this.state !== 'play') return;
     if (p.vehicle) {
-      // la MOTO-V absorbe el golpe con su integridad, no la conexión
-      p.vehicle.integrity -= dmg * 2;
-      this.audio.block();
-      this.shake = 4;
-      if (p.vehicle.integrity <= 0) {
-        p.vehicle = null;
-        p.turbo = false;
-        this.audio.weaponBreak();
-        this.showToast('MOTO-V DESTRUIDA · SIGUE A PIE', 120);
-      }
+      // La moto absorbe el golpe, sin el antiguo multiplicador x2.
+      this.damageVehicle(dmg);
       return;
     }
     if (p.guarding) {
@@ -1394,6 +1393,7 @@ class Game {
 
     if (p.vehicle) {
       // ----- MOTO-V: vuelo rasante que arrasa a la multitud -----
+      if (p.vehicle.hitCooldown > 0) p.vehicle.hitCooldown--;
       p.guarding = false;
       p.currentAnim = 'ride';
       p.facingRight = true;
@@ -1423,24 +1423,16 @@ class Game {
       });
       // agregados fijos: dañan la moto si no se saltan o esquivan
       this.hazards.forEach(hz => {
-        if (hz.hit) return;
+        if (hz.hit || !p.vehicle) return;
         if (Math.abs(p.x - hz.x) < 16 && Math.abs(p.lane - hz.lane) < 12 && p.z < 16) {
           hz.hit = true;
-          p.vehicle.integrity -= 25;
-          this.shake = 6;
-          this.audio.hit();
-          if (p.vehicle.integrity <= 0) {
-            p.vehicle = null;
-            p.turbo = false;
-            this.audio.weaponBreak();
-            this.showToast('MOTO-V DESTRUIDA · SIGUE A PIE', 120);
-          }
+          this.damageVehicle(12);
         }
       });
       // repuestos de integridad en la pista
       this.repairs.forEach(r => {
         if (r.taken || !p.vehicle) return;
-        if (Math.abs(p.x - r.x) < 20 && Math.abs(p.lane - r.lane) < 16) {
+        if (Math.abs(p.x - r.x) < 20 && Math.abs(p.lane - r.lane) < 30) {
           r.taken = true;
           p.vehicle.integrity = Math.min(100, p.vehicle.integrity + 35);
           this.audio.pickup();
@@ -1453,11 +1445,11 @@ class Game {
         this.lastTrailX = p.x;
       }
       // rivales de luz y sus estelas
-      if (p.vehicle && p.x > 1380 && p.x < this.dismountX - 160) {
+      if (p.vehicle && p.x > 1720 && p.x < this.dismountX - 280) {
         this.riderTimer--;
         if (this.riderTimer <= 0) {
           this.riders.push({ x: this.camX + VIEW_W + 30, lane: LANE_TOP + 8 + Math.random() * (LANE_BOTTOM - LANE_TOP - 16), dead: false, t: 0, lastX: 0 });
-          this.riderTimer = 95 + Math.floor(Math.random() * 60);
+          this.riderTimer = 210 + Math.floor(Math.random() * 70);
         }
       }
       this.updateRiders();
@@ -1466,8 +1458,8 @@ class Game {
         this.rideSpawnTimer--;
         if (this.rideSpawnTimer <= 0) {
           this.spawnRideEnemy();
-          if (Math.random() < 0.25) this.spawnRideEnemy();
-          this.rideSpawnTimer = 90 + Math.floor(Math.random() * 50);
+          // Sin doble aparición: la pista ya tiene rivales y barreras.
+          this.rideSpawnTimer = 180 + Math.floor(Math.random() * 60);
         }
       }
       // fin del tramo de vuelo
@@ -1911,7 +1903,7 @@ class Game {
     if (this.vehiclePad && !this.vehiclePad.taken && !p.vehicle) {
       if (Math.abs(p.x - this.vehiclePad.x) < 16 && Math.abs(p.lane - this.vehiclePad.lane) < 14 && p.z < 22) {
         this.vehiclePad.taken = true;
-        p.vehicle = { integrity: 100 };
+        p.vehicle = { integrity: 100, hitCooldown: 90 };
         this.audio.weaponGet();
         this.showToast('¡MOTO-V! PISTA DE NEÓN\nESPACIO SALTA BARRERAS · U TURBO\nCORTA A LOS RIVALES CON TU ESTELA', 210);
       }
@@ -2065,7 +2057,7 @@ class Game {
       const bobY = Math.sin(this.t / 10 + r.x) * 3;
       glowDot(ctx, sx, r.lane - 12 + bobY, 16, 'rgba(184,249,78,0.7)');
       ctx.strokeStyle = '#b8f94e'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(sx, r.lane - 12 + bobY, 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(sx, r.lane - 12 + bobY, 6, 22, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = '#e9ffc0'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
       ctx.fillText('+', sx, r.lane - 9 + bobY); ctx.textAlign = 'left';
     });
