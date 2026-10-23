@@ -2,12 +2,25 @@
 /* NEURO-FIGHTER: Avance — Tramos 1 y 2
    Tramo 1 (Fosa de Ranvier): avance lateral con oleadas y MACRO-L1.
    Tramo 2 (Vía Periférica): nuevas variedades de agresores, la superarma
-   MOTO-V (moto voladora que arrasa a la multitud) y la jefa PLACA-0.
+   MOTO-V (moto de luz estilo neón: pista larga, estelas y rivales) y la jefa PLACA-0.
    MGR-01 protege la conexión; la barra de CONEXIÓN solo se restaura
    con recargas de señal y puntos de control. Derrotar enemigos no cura. */
 
 const VIEW_W = 384, VIEW_H = 216;
 const LANE_TOP = 148, LANE_BOTTOM = 202;
+
+// barreras de neón repartidas por la pista (patrón fijo, sin azar)
+function neonHazards() {
+  const lanes = [158, 176, 194, 166, 188, 172, 198, 162];
+  const out = [];
+  let k = 0;
+  for (let x = 1460; x < 5760; x += 150) {
+    out.push({ x: x, lane: lanes[k % lanes.length] });
+    if (k % 3 === 2) out.push({ x: x + 20, lane: lanes[(k + 4) % lanes.length] });
+    k++;
+  }
+  return out;
+}
 
 // ---------- CONFIGURACIÓN DE TRAMOS ----------
 const STAGES = [
@@ -16,6 +29,7 @@ const STAGES = [
     worldW: 1900,
     weapons: [{ x: 700, lane: 182 }, { x: 1345, lane: 182 }],
     hazards: [],
+    repairs: [],
     vehiclePad: null,
     dismountX: 0,
     triggers: [
@@ -34,18 +48,16 @@ const STAGES = [
   },
   {
     name: 'TRAMO 2 · VÍA PERIFÉRICA',
-    worldW: 2260,
-    weapons: [{ x: 620, lane: 170 }, { x: 990, lane: 192 }, { x: 1788, lane: 182 }],
-    hazards: [ // agregados fijos del tramo de vuelo: saltarlos o esquivarlos
-      { x: 1260, lane: 162 }, { x: 1350, lane: 196 }, { x: 1440, lane: 172 },
-      { x: 1530, lane: 188 }, { x: 1620, lane: 158 }, { x: 1695, lane: 192 },
-    ],
+    worldW: 6420,
+    weapons: [{ x: 620, lane: 170 }, { x: 990, lane: 192 }, { x: 5640, lane: 182 }],
+    hazards: neonHazards(), // barreras de neón del tramo de vuelo: saltarlas o esquivarlas
+    repairs: [{ x: 2500, lane: 176 }, { x: 3900, lane: 190 }, { x: 5100, lane: 170 }],
     vehiclePad: { x: 1150, lane: 182 },
-    dismountX: 1750,
+    dismountX: 5900,
     triggers: [
       { x: 380, type: 'wave', waves: [{ t: 'melee' }, { t: 'cito' }, { t: 'melee' }, { t: 'cito' }] },
       { x: 820, type: 'wave', waves: [{ t: 'radical' }, { t: 'radical' }, { t: 'plasma' }, { t: 'radical' }, { t: 'melee', big: true }] },
-      { x: 1830, type: 'boss', boss: 'placa' },
+      { x: 5980, type: 'boss', boss: 'placa' },
     ],
     zones: [
       { x: 0, name: 'TRAMO 2 · VÍA PERIFÉRICA' },
@@ -53,8 +65,10 @@ const STAGES = [
       { x: 700, name: '3 · AVANZA' },
       { x: 820, name: '4 · ENJAMBRE HOSTIL' },
       { x: 1120, name: '5 · MOTO-V A LA VISTA' },
-      { x: 1500, name: '6 · TRAMO DE VUELO' },
-      { x: 1830, name: '7 · JEFE: PLACA-0' },
+      { x: 1500, name: '6 · PISTA DE NEÓN\nSUS ESTELAS DAÑAN · CORTA SU PASO' },
+      { x: 3000, name: '7 · RED DE ESTELAS' },
+      { x: 4500, name: '8 · TRAMO FINAL DE LA PISTA' },
+      { x: 5980, name: '9 · JEFE: PLACA-0' },
     ],
     next: false,
   },
@@ -124,7 +138,26 @@ class SoundEngine {
 
 // ---------- MÚSICA (secuenciador chiptune original, sin samples ni material externo) ----------
 // Temas compuestos para NEURO-FIGHTER: 'main' (avance) y 'boss' (jefes, más intenso).
+// tema de la pista de neón: arpegio sintético original
+function neonLead() {
+  const lead = {};
+  const arp = [[57, 60, 64, 69], [53, 57, 60, 65], [55, 59, 62, 67], [52, 56, 59, 64]];
+  for (let b = 0; b < 4; b++) {
+    for (let k = 0; k < 16; k += 2) {
+      const n = arp[b][(k / 2) % 4] + 12 + ((k % 8 === 6) ? 12 : 0);
+      lead[b * 16 + k] = [n, 1];
+    }
+  }
+  return lead;
+}
 const MUSIC_TRACKS = {
+  neon: {
+    bpm: 146, len: 64,
+    lead: neonLead(),
+    bassRoots: [33, 29, 31, 28],
+    bassEnd: 28,
+    drive: true,
+  },
   main: {
     bpm: 132, len: 64,
     lead: {
@@ -641,75 +674,164 @@ function drawPlaca(ctx, f) {
   ctx.restore();
 }
 
-// MGR-01 pilotando la MOTO-V (superarma del tramo 2)
+// MGR-01 pilotando la MOTO-V: moto de luz futurista (silueta baja, ruedas luminosas, estela)
+function neonWheel(ctx, x, y, r, col, t, flash) {
+  glowDot(ctx, x, y, r * 2.1, flash ? 'rgba(255,255,255,0.6)' : col.glow);
+  ctx.strokeStyle = flash ? '#ffffff' : col.main; ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x, y, r - 2.2, 0, Math.PI * 2); ctx.stroke();
+  // radios giratorios
+  ctx.strokeStyle = col.main; ctx.lineWidth = 0.8;
+  const a0 = t / 3;
+  for (let k = 0; k < 3; k++) {
+    const a = a0 + k * Math.PI * 2 / 3;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * (r - 2), y + Math.sin(a) * (r - 2)); ctx.stroke();
+  }
+}
 function drawMgrBike(ctx, f) {
-  const t = f.frameTimer;
+  const t = f.frameTimer || 0;
   const hit = f.state === 'HITSTUN';
   const flash = hit && Math.floor(t / 2) % 2 === 0;
-  const air = (f.z || 0) > 0;
-  const bob = Math.sin(t / 6) * 1.4;
-  const hull = flash ? '#ffffff' : '#37d3e8';
-  const hullDark = flash ? '#dddddd' : '#0f6f8a';
-  const accent = flash ? '#ffffff' : '#a78bfa';
+  const bob = f.empty ? 0 : Math.sin(t / 6) * 0.8;
+  const col = { main: flash ? '#ffffff' : '#3de8ff', glow: 'rgba(61,232,255,0.55)' };
+  const mag = flash ? '#ffffff' : '#ff3df0';
+  const turbo = f.turbo ? 1.7 : 1;
 
   ctx.save();
   ctx.translate(f.x, f.y);
   if (!f.facingRight) ctx.scale(-1, 1);
-  const cy = -14 + bob;
+  const cy = -11 + bob;
 
-  // estela del propulsor
-  const turbo = f.turbo ? 1.7 : 1;
-  for (let i = 0; i < 3; i++) {
-    const lx = -22 - i * 7 * turbo - Math.random() * 3;
-    ctx.globalAlpha = Math.max(0, 0.55 - i * 0.18);
-    ctx.fillStyle = i === 0 ? '#bffcff' : (i === 1 ? '#67e8f9' : '#a78bfa');
-    ctx.beginPath();
-    ctx.moveTo(-20, cy + 3); ctx.lineTo(lx, cy + 1.5); ctx.lineTo(lx, cy + 4.5);
-    ctx.closePath(); ctx.fill();
+  // propulsor trasero
+  if (!f.empty) {
+    for (let i = 0; i < 3; i++) {
+      const lx = -30 - i * 7 * turbo - Math.random() * 3;
+      ctx.globalAlpha = Math.max(0, 0.6 - i * 0.18);
+      ctx.fillStyle = i === 0 ? '#e0ffff' : (i === 1 ? '#3de8ff' : '#ff3df0');
+      ctx.beginPath(); ctx.moveTo(-24, cy + 4); ctx.lineTo(lx, cy + 2.6); ctx.lineTo(lx, cy + 5.4); ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
-  glowDot(ctx, -20, cy + 3, 9 * turbo, 'rgba(103,232,249,0.7)');
 
-  // casco de la moto: lágrima aerodinámica
-  const g = ctx.createLinearGradient(0, cy - 6, 0, cy + 8);
-  g.addColorStop(0, hull); g.addColorStop(0.6, hull); g.addColorStop(1, hullDark);
+  // ruedas luminosas
+  neonWheel(ctx, -17, cy + 6, 8, col, t, flash);
+  neonWheel(ctx, 19, cy + 6, 8, col, t, flash);
+
+  // carenado bajo y afilado
+  const g = ctx.createLinearGradient(0, cy - 8, 0, cy + 8);
+  g.addColorStop(0, flash ? '#fff' : '#12335a'); g.addColorStop(1, flash ? '#ddd' : '#050d22');
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.moveTo(24, cy + 2);
-  ctx.quadraticCurveTo(16, cy - 5, -4, cy - 5);
-  ctx.quadraticCurveTo(-18, cy - 5, -22, cy + 2);
-  ctx.quadraticCurveTo(-10, cy + 8, 6, cy + 8);
-  ctx.quadraticCurveTo(20, cy + 8, 24, cy + 2);
+  ctx.moveTo(30, cy + 5);
+  ctx.lineTo(20, cy - 3);
+  ctx.lineTo(4, cy - 7);
+  ctx.lineTo(-14, cy - 6);
+  ctx.lineTo(-26, cy - 1);
+  ctx.lineTo(-24, cy + 5);
+  ctx.lineTo(-8, cy + 3);
+  ctx.lineTo(10, cy + 3);
   ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = hullDark; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.strokeStyle = col.main; ctx.lineWidth = 1.4; ctx.stroke();
+  // vetas de luz
+  ctx.strokeStyle = mag; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-20, cy); ctx.lineTo(8, cy - 3.5); ctx.lineTo(22, cy + 1); ctx.stroke();
+  glowDot(ctx, 28, cy + 3, 6, 'rgba(255,255,255,0.9)');
 
-  // aleta delantera y línea luminosa
-  ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(20, cy - 2); ctx.lineTo(27, cy - 6); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-14, cy + 4.5); ctx.lineTo(14, cy + 4.5); ctx.stroke();
-  glowDot(ctx, 24, cy - 1, 5, 'rgba(191,252,255,0.9)');
-
-  // piloto: MGR-01 inclinado hacia delante
-  const py = cy - 14;
-  ctx.strokeStyle = flash ? '#fff' : '#168fa8';
-  ctx.lineWidth = 2.2;
-  branch(ctx, 2, py + 6, -0.9, 7, 1.8, 1, Math.sin(t / 5));
-  ctx.strokeStyle = flash ? '#fff' : '#4ee6f2';
-  branch(ctx, 3, py + 5, -0.5, 8, 1.8, 1, -Math.sin(t / 5));
-  const pg = ctx.createLinearGradient(0, py - 8, 0, py + 8);
-  pg.addColorStop(0, flash ? '#fff' : '#9ef0a8');
-  pg.addColorStop(0.5, flash ? '#fff' : '#4ee6f2');
-  pg.addColorStop(1, flash ? '#ddd' : '#168fa8');
-  ctx.fillStyle = pg;
-  ctx.beginPath(); ctx.ellipse(0, py, 6.5, 8.5, -0.25, 0, Math.PI * 2); ctx.fill();
-  glowDot(ctx, -1, py + 3, 7, 'rgba(220,255,255,0.9)');
-  ctx.fillStyle = '#06222c';
-  ctx.beginPath(); ctx.ellipse(2.5, py - 3.5, 2.2, 2.6, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(2.8, py - 5, 1.1, 1.1);
-
+  // piloto: MGR-01 agachado
+  if (!f.empty) {
+    const py = cy - 11;
+    ctx.strokeStyle = flash ? '#fff' : '#168fa8';
+    ctx.lineWidth = 2;
+    branch(ctx, 2, py + 6, -0.9, 7, 1.6, 1, Math.sin(t / 5));
+    ctx.strokeStyle = flash ? '#fff' : '#4ee6f2';
+    branch(ctx, 3, py + 5, -0.5, 8, 1.6, 1, -Math.sin(t / 5));
+    const pg = ctx.createLinearGradient(0, py - 8, 0, py + 8);
+    pg.addColorStop(0, flash ? '#fff' : '#9ef0a8');
+    pg.addColorStop(0.5, flash ? '#fff' : '#4ee6f2');
+    pg.addColorStop(1, flash ? '#ddd' : '#168fa8');
+    ctx.fillStyle = pg;
+    ctx.beginPath(); ctx.ellipse(0, py, 6, 7.5, -0.35, 0, Math.PI * 2); ctx.fill();
+    glowDot(ctx, -1, py + 2, 6, 'rgba(220,255,255,0.9)');
+    ctx.fillStyle = '#06222c';
+    ctx.beginPath(); ctx.ellipse(2.8, py - 3, 2, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(3, py - 4.4, 1, 1);
+  }
   ctx.restore();
 }
+
+// rival de luz: moto oscura con ruedas magenta, mira hacia la izquierda
+function drawRider(ctx, x, y, t, a) {
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.translate(x, y); ctx.scale(-1, 1);
+  const col = { main: '#ff4d6d', glow: 'rgba(255,77,109,0.5)' };
+  const cy = -11;
+  neonWheel(ctx, -15, cy + 6, 7, col, t, false);
+  neonWheel(ctx, 16, cy + 6, 7, col, t, false);
+  ctx.fillStyle = '#240818';
+  ctx.beginPath();
+  ctx.moveTo(26, cy + 5); ctx.lineTo(16, cy - 3); ctx.lineTo(2, cy - 8); ctx.lineTo(-12, cy - 6); ctx.lineTo(-22, cy); ctx.lineTo(-20, cy + 5);
+  ctx.lineTo(-6, cy + 3); ctx.lineTo(8, cy + 3); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#ff4d6d'; ctx.lineWidth = 1.4; ctx.stroke();
+  // jinete encapuchado
+  ctx.fillStyle = '#12020c';
+  ctx.beginPath(); ctx.ellipse(0, cy - 12, 5.5, 7, -0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ff4d6d'; ctx.lineWidth = 1; ctx.stroke();
+  glowDot(ctx, 3, cy - 14, 4, 'rgba(255,200,210,0.9)');
+  ctx.restore();
+}
+
+// fondo de la pista de neón (se mezcla sobre el escenario cuando se va en moto)
+function drawNeonOverlay(ctx, camX, t, a) {
+  ctx.save();
+  ctx.globalAlpha = a;
+  const g = ctx.createLinearGradient(0, 0, 0, VIEW_H);
+  g.addColorStop(0, '#05011a'); g.addColorStop(0.55, '#1a0638'); g.addColorStop(1, '#030012');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  // sol de neón con bandas
+  const sx = 250, sy = 92;
+  glowDot(ctx, sx, sy, 80, 'rgba(255,61,240,0.35)');
+  ctx.fillStyle = '#ff7a3d';
+  ctx.beginPath(); ctx.arc(sx, sy, 38, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#ff3df0';
+  ctx.beginPath(); ctx.arc(sx, sy, 38, 0, Math.PI); ctx.rect(sx - 38, sy, 76, 0); ctx.fill();
+  ctx.fillStyle = '#1a0638';
+  for (let k = 0; k < 5; k++) ctx.fillRect(sx - 40, sy + 4 + k * 8, 80, 1.5 + k * 0.8);
+  // horizonte de edificios de neón con paralaje
+  ctx.fillStyle = '#0b0426';
+  const off = (camX * 0.3) % 240;
+  for (let i = -1; i < 4; i++) {
+    for (let k = 0; k < 6; k++) {
+      const bx = i * 240 - off + k * 40, bh = 18 + ((k * 37 + 11) % 5) * 9;
+      ctx.fillRect(bx, LANE_TOP - 24 - bh, 32, bh + 24);
+      ctx.fillStyle = (k % 2) ? 'rgba(61,232,255,0.7)' : 'rgba(255,61,240,0.7)';
+      ctx.fillRect(bx, LANE_TOP - 24 - bh, 32, 1.2);
+      ctx.fillStyle = '#0b0426';
+    }
+  }
+  // suelo: cuadrícula en perspectiva
+  const top = LANE_TOP - 24;
+  const fg = ctx.createLinearGradient(0, top, 0, VIEW_H);
+  fg.addColorStop(0, '#0a0430'); fg.addColorStop(1, '#14063a');
+  ctx.fillStyle = fg; ctx.fillRect(0, top, VIEW_W, VIEW_H - top);
+  ctx.strokeStyle = 'rgba(61,232,255,0.9)'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(0, top); ctx.lineTo(VIEW_W, top); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,61,240,0.5)'; ctx.lineWidth = 1;
+  for (let k = 1; k <= 9; k++) {
+    const y = top + Math.pow(k / 9, 1.8) * (VIEW_H - top);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(VIEW_W, y); ctx.stroke();
+  }
+  const cxv = VIEW_W / 2, sp = 48;
+  const sc = (camX * 1.0) % sp;
+  for (let k = -9; k <= 9; k++) {
+    const bx = cxv + k * sp - sc;
+    ctx.beginPath(); ctx.moveTo(cxv + (k * sp - sc) * 0.12, top); ctx.lineTo(bx * 1.0 + (bx - cxv) * 1.2, VIEW_H); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // ---------- ESCENARIO: Fosa de Ranvier con scroll y paralaje ----------
 function drawStageScroll(ctx, camX, t) {
   const grad = ctx.createLinearGradient(0, 0, 0, VIEW_H);
@@ -977,6 +1099,13 @@ class Game {
     this.checkpoints = [];
     this.weapons = S.weapons.map(w => ({ x: w.x, lane: w.lane, taken: false }));
     this.hazards = S.hazards.map(h => ({ x: h.x, lane: h.lane, hit: false }));
+    this.repairs = (S.repairs || []).map(r => ({ x: r.x, lane: r.lane, taken: false }));
+    this.riders = [];
+    this.trails = [];
+    this.riderTimer = 70;
+    this.cuts = 0;
+    this.lastTrailX = -999;
+    this.flight = 0;
     this.vehiclePad = S.vehiclePad ? { x: S.vehiclePad.x, lane: S.vehiclePad.lane, taken: false } : null;
     this.dismountX = S.dismountX;
     this.rideSpawnTimer = 40;
@@ -1072,6 +1201,68 @@ class Game {
     this.enemies.push(new Grunt(this.camX + VIEW_W + 24 + Math.random() * 40, lane, false, ty));
   }
 
+  updateRiders() {
+    const p = this.player;
+    // desvanecer estelas
+    this.trails.forEach(t => { t.life--; });
+    this.trails = this.trails.filter(t => t.life > 0 && t.x > this.camX - 80);
+    this.riders.forEach(r => {
+      if (r.dead) { r.t++; return; }
+      r.t++;
+      r.x -= 3.1;
+      // se desvían hacia el carril del piloto para cerrarle el paso
+      if (p.vehicle) {
+        const dl = p.lane - r.lane;
+        r.lane += Math.max(-0.45, Math.min(0.45, dl * 0.05));
+      }
+      r.lane = Math.max(LANE_TOP + 4, Math.min(LANE_BOTTOM - 4, r.lane));
+      if (Math.abs(r.x - r.lastX) >= 6) {
+        this.trails.push({ x: r.x + 14, lane: r.lane, life: 260, own: false });
+        r.lastX = r.x;
+      }
+      if (!p.vehicle) return;
+      // choque frontal: la moto destruye al rival sin daño
+      if (Math.abs(r.x - p.x) < 24 && Math.abs(r.lane - p.lane) < 13 && p.z < 18) {
+        this.derez(r, false);
+        return;
+      }
+      // estela propia atravesada: corte limpio
+      for (let i = 0; i < this.trails.length; i++) {
+        const t = this.trails[i];
+        if (t.own && Math.abs(t.x - r.x) < 8 && Math.abs(t.lane - r.lane) < 10) { this.derez(r, true); break; }
+      }
+    });
+    this.riders = this.riders.filter(r => (r.dead ? r.t < 30 : r.x > this.camX - 60));
+    // estelas rivales contra la moto
+    if (p.vehicle) {
+      for (let i = 0; i < this.trails.length; i++) {
+        const t = this.trails[i];
+        if (t.own) continue;
+        if (Math.abs(t.x - p.x) < 9 && Math.abs(t.lane - p.lane) < 9 && p.z < 16) {
+          this.trails.forEach(o => { if (!o.own && Math.abs(o.x - t.x) < 16 && Math.abs(o.lane - t.lane) < 12) o.life = 0; });
+          p.vehicle.integrity -= 14;
+          this.shake = 5;
+          this.audio.hit();
+          if (p.vehicle.integrity <= 0) {
+            p.vehicle = null;
+            p.turbo = false;
+            this.audio.weaponBreak();
+            this.showToast('MOTO-V DESTRUIDA · SIGUE A PIE', 120);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  derez(r, byTrail) {
+    r.dead = true; r.t = 0;
+    // su estela se disuelve
+    this.trails.forEach(t => { if (!t.own && Math.abs(t.lane - r.lane) < 20 && t.x > r.x - 4 && t.x < r.x + 400) t.life = Math.min(t.life, 18); });
+    this.audio.hit();
+    if (byTrail) { this.cuts++; this.showToast('¡CORTE! RIVAL ELIMINADO', 70); }
+  }
+
   clearWave(trig) {
     trig.done = true;
     this.lockActive = false;
@@ -1087,7 +1278,7 @@ class Game {
     trig.done = true;
     this.lockActive = true;
     if (trig.boss === 'placa') {
-      this.boss = new PlacaBoss(2060, 178);
+      this.boss = new PlacaBoss(trig.x + 230, 178);
       this.showToast('¡PLACA-0 BLOQUEA LA CONEXIÓN!', 160);
     } else {
       this.boss = new Boss(1560, 178);
@@ -1165,7 +1356,7 @@ class Game {
   // --- actualización por frame ---
   update() {
     this.t++;
-    this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : 'main') : null);
+    this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : (this.player.vehicle ? 'neon' : 'main')) : null);
 
     if (this.state === 'interlude') {
       this.interludeTimer--;
@@ -1246,13 +1437,37 @@ class Game {
           }
         }
       });
-      // multitud durante el vuelo
+      // repuestos de integridad en la pista
+      this.repairs.forEach(r => {
+        if (r.taken || !p.vehicle) return;
+        if (Math.abs(p.x - r.x) < 20 && Math.abs(p.lane - r.lane) < 16) {
+          r.taken = true;
+          p.vehicle.integrity = Math.min(100, p.vehicle.integrity + 35);
+          this.audio.pickup();
+          this.showToast('+ INTEGRIDAD DE LA MOTO', 80);
+        }
+      });
+      // estela propia: rastro de luz que corta el paso a los rivales
+      if (p.vehicle && p.x - this.lastTrailX >= 5) {
+        this.trails.push({ x: p.x - 18, lane: p.lane + 1, life: 80, own: true });
+        this.lastTrailX = p.x;
+      }
+      // rivales de luz y sus estelas
+      if (p.vehicle && p.x > 1380 && p.x < this.dismountX - 160) {
+        this.riderTimer--;
+        if (this.riderTimer <= 0) {
+          this.riders.push({ x: this.camX + VIEW_W + 30, lane: LANE_TOP + 8 + Math.random() * (LANE_BOTTOM - LANE_TOP - 16), dead: false, t: 0, lastX: 0 });
+          this.riderTimer = 95 + Math.floor(Math.random() * 60);
+        }
+      }
+      this.updateRiders();
+      // multitud durante el vuelo (menos densa: los rivales son el reto principal)
       if (p.vehicle && p.x < this.dismountX - 60) {
         this.rideSpawnTimer--;
         if (this.rideSpawnTimer <= 0) {
           this.spawnRideEnemy();
-          if (Math.random() < 0.45) this.spawnRideEnemy();
-          this.rideSpawnTimer = 55 + Math.floor(Math.random() * 30);
+          if (Math.random() < 0.25) this.spawnRideEnemy();
+          this.rideSpawnTimer = 90 + Math.floor(Math.random() * 50);
         }
       }
       // fin del tramo de vuelo
@@ -1698,7 +1913,7 @@ class Game {
         this.vehiclePad.taken = true;
         p.vehicle = { integrity: 100 };
         this.audio.weaponGet();
-        this.showToast('¡MOTO-V! ARRASA A LA MULTITUD\nESPACIO SOBRE OBSTÁCULOS · U TURBO', 210);
+        this.showToast('¡MOTO-V! PISTA DE NEÓN\nESPACIO SALTA BARRERAS · U TURBO\nCORTA A LOS RIVALES CON TU ESTELA', 210);
       }
     }
 
@@ -1776,6 +1991,10 @@ class Game {
 
     if (this.stageIdx === 1) drawStageScrollPeri(ctx, this.camX, this.t);
     else drawStageScroll(ctx, this.camX, this.t);
+    if (this.stageIdx === 1) {
+      this.flight += ((this.player.vehicle ? 1 : 0) - this.flight) * 0.08;
+      if (this.flight > 0.02) drawNeonOverlay(ctx, this.camX, this.t, Math.min(1, this.flight));
+    }
 
     this.checkpoints.forEach(c => {
       const sx = c.x - this.camX;
@@ -1822,25 +2041,63 @@ class Game {
       ctx.restore();
     });
 
-    // agregados fijos del tramo de vuelo
+    // barreras de neón del tramo de vuelo
     this.hazards.forEach(hz => {
       if (hz.hit) return;
       const sx = hz.x - this.camX;
       if (sx < -24 || sx > VIEW_W + 24) return;
-      const blink = 0.5 + 0.5 * Math.sin(this.t / 7 + hz.x);
-      glowDot(ctx, sx, hz.lane - 8, 14, 'rgba(244,63,94,' + (0.25 + 0.3 * blink) + ')');
-      ctx.fillStyle = '#4a1040';
-      ctx.strokeStyle = '#f43f5e';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(sx - 8, hz.lane + 4);
-      ctx.lineTo(sx - 3, hz.lane - 14);
-      ctx.lineTo(sx + 1, hz.lane - 4);
-      ctx.lineTo(sx + 4, hz.lane - 18);
-      ctx.lineTo(sx + 9, hz.lane + 4);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = 'rgba(244,63,94,' + (0.5 + 0.4 * blink) + ')';
-      ctx.beginPath(); ctx.arc(sx + 1, hz.lane - 8, 1.8, 0, Math.PI * 2); ctx.fill();
+      const blink = 0.6 + 0.4 * Math.sin(this.t / 6 + hz.x);
+      glowDot(ctx, sx, hz.lane - 8, 15, 'rgba(255,61,240,' + (0.25 + 0.3 * blink) + ')');
+      ctx.fillStyle = '#12052e';
+      ctx.strokeStyle = '#ff3df0';
+      ctx.lineWidth = 1.4;
+      ctx.fillRect(sx - 4, hz.lane - 20, 8, 24);
+      ctx.strokeRect(sx - 4, hz.lane - 20, 8, 24);
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.5 + 0.4 * blink) + ')';
+      ctx.beginPath(); ctx.moveTo(sx, hz.lane - 18); ctx.lineTo(sx, hz.lane + 2); ctx.stroke();
+    });
+
+    // recargas de integridad de la moto
+    this.repairs.forEach(r => {
+      if (r.taken) return;
+      const sx = r.x - this.camX;
+      if (sx < -20 || sx > VIEW_W + 20) return;
+      const bobY = Math.sin(this.t / 10 + r.x) * 3;
+      glowDot(ctx, sx, r.lane - 12 + bobY, 16, 'rgba(184,249,78,0.7)');
+      ctx.strokeStyle = '#b8f94e'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx, r.lane - 12 + bobY, 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#e9ffc0'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('+', sx, r.lane - 9 + bobY); ctx.textAlign = 'left';
+    });
+
+    // estelas de luz (rival = rojo, propia = cian)
+    this.trails.forEach(tr => {
+      const sx = tr.x - this.camX;
+      if (sx < -10 || sx > VIEW_W + 10) return;
+      if (tr.own) {
+        const a = Math.max(0, tr.life / 80);
+        ctx.fillStyle = 'rgba(61,232,255,' + (0.8 * a) + ')';
+        ctx.fillRect(sx - 3, tr.lane - 5, 6, 3);
+        glowDot(ctx, sx, tr.lane - 4, 7, 'rgba(61,232,255,' + (0.4 * a) + ')');
+      } else {
+        const a = Math.min(1, tr.life / 40);
+        ctx.fillStyle = 'rgba(255,77,109,' + (0.85 * a) + ')';
+        ctx.fillRect(sx - 4, tr.lane - 16, 8, 16);
+        ctx.fillStyle = 'rgba(255,230,235,' + (0.9 * a) + ')';
+        ctx.fillRect(sx - 1, tr.lane - 16, 2, 16);
+        glowDot(ctx, sx, tr.lane - 8, 11, 'rgba(255,77,109,' + (0.35 * a) + ')');
+      }
+    });
+
+    // rivales de luz
+    this.riders.forEach(r => {
+      const sx = r.x - this.camX;
+      if (sx < -40 || sx > VIEW_W + 40) return;
+      const a = r.dead ? Math.max(0, 1 - r.t / 30) : 1;
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.ellipse(sx, r.lane + 2, 18, 4, 0, 0, Math.PI * 2); ctx.fill();
+      drawRider(ctx, sx, r.lane, this.t, a);
+      if (r.dead) glowDot(ctx, sx, r.lane - 12, 12 + r.t, 'rgba(255,255,255,' + (0.6 * a) + ')');
     });
 
     // MOTO-V aparcada esperando al piloto
@@ -1850,27 +2107,10 @@ class Game {
         const bobY = Math.sin(this.t / 10) * 3;
         const wy = this.vehiclePad.lane - 12 + bobY;
         glowDot(ctx, sx, wy, 26, 'rgba(103,232,249,0.5)');
-        ctx.save();
-        ctx.translate(sx, wy);
-        const g = ctx.createLinearGradient(0, -6, 0, 8);
-        g.addColorStop(0, '#37d3e8'); g.addColorStop(1, '#0f6f8a');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.moveTo(24, 2);
-        ctx.quadraticCurveTo(16, -5, -4, -5);
-        ctx.quadraticCurveTo(-18, -5, -22, 2);
-        ctx.quadraticCurveTo(-10, 8, 6, 8);
-        ctx.quadraticCurveTo(20, 8, 24, 2);
-        ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = '#0f6f8a'; ctx.lineWidth = 1.2; ctx.stroke();
-        ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(20, -2); ctx.lineTo(27, -6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(-14, 4.5); ctx.lineTo(14, 4.5); ctx.stroke();
-        glowDot(ctx, 24, -1, 5, 'rgba(191,252,255,0.9)');
-        ctx.restore();
+        drawMgrBike(ctx, { x: sx, y: this.vehiclePad.lane + bobY * 0.5, facingRight: true, frameTimer: this.t, empty: true });
         ctx.fillStyle = '#ffd15c';
         ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
-        ctx.fillText('MOTO-V', sx, wy - 20);
+        ctx.fillText('MOTO-V', sx, wy - 24);
         ctx.textAlign = 'left';
       }
     }
