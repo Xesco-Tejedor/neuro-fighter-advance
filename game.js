@@ -1698,7 +1698,7 @@ class Game {
         this.vehiclePad.taken = true;
         p.vehicle = { integrity: 100 };
         this.audio.weaponGet();
-        this.showToast('¡MOTO-V! ARRASA A LA MULTITUD · ESPACIO SOBRE OBSTÁCULOS · U TURBO', 190);
+        this.showToast('¡MOTO-V! ARRASA A LA MULTITUD\nESPACIO SOBRE OBSTÁCULOS · U TURBO', 210);
       }
     }
 
@@ -1972,15 +1972,17 @@ class Game {
 
     if (this.toast) {
       const a = Math.min(1, this.toast.timer / 30);
+      const lines = this.toast.text.split('\n');
       ctx.save();
       ctx.globalAlpha = a;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       ctx.font = 'bold 11px monospace';
-      const w = ctx.measureText(this.toast.text).width + 20;
-      ctx.fillRect((VIEW_W - w) / 2, 52, w, 20);
+      const w = Math.max.apply(null, lines.map(l => ctx.measureText(l).width)) + 20;
+      const h = lines.length * 14 + 8;
+      ctx.fillRect((VIEW_W - w) / 2, 52, w, h);
       ctx.fillStyle = '#ffd15c';
       ctx.textAlign = 'center';
-      ctx.fillText(this.toast.text, VIEW_W / 2, 66);
+      lines.forEach((l, i) => ctx.fillText(l, VIEW_W / 2, 66 + i * 14));
       ctx.textAlign = 'left';
       ctx.restore();
     }
