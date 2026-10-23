@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEURO-FIGHTER: Avance — Tramo 1</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="arcade-frame">
+  <canvas id="stage" width="384" height="216"></canvas>
+  <div class="scanlines"></div>
+
+  <div id="touch-controls" aria-hidden="true">
+    <div id="touch-move">
+      <div class="tbtn trow" data-key="w">&#9650;</div>
+      <div class="trowmid">
+        <div class="tbtn" data-key="a">&#9664;</div>
+        <div class="tbtn" data-key="s">&#9660;</div>
+        <div class="tbtn" data-key="d">&#9654;</div>
+      </div>
+    </div>
+    <div id="touch-actions">
+      <div class="tbtn tact" data-key="u">GOLPE</div>
+      <div class="tbtn tact" data-key="i">BOLA</div>
+      <div class="tbtn tact" data-key="o">GUARD</div>
+      <div class="tbtn tact" data-key=" ">SALTO</div>
+    </div>
+  </div>
+</div>
+
+<div id="toolbar">
+  <span><b class="key">A</b> <b class="key">D</b> Mover</span>
+  <span><b class="key">W</b> <b class="key">S</b> Profundidad</span>
+  <span><b class="key">ESPACIO</b> Salto</span>
+  <span><b class="key">U</b> Golpe (combo x3)</span>
+  <span><b class="key">I</b> Neuro-Ball</span>
+  <span><b class="key">O</b> Guardia</span>
+  <span><b class="key">M</b> Sonido</span>
+  <span><b class="key">H</b> Cajas de colisión</span>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
