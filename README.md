@@ -6,6 +6,8 @@ Primer tramo jugable de NEURO-FIGHTER en modo avance (estilo beat 'em up): MGR-0
 
 Tres archivos: `index.html`, `styles.css`, `game.js`. Sin dependencias ni assets externos; todo se dibuja y suena por código.
 
+**Música original** generada en vivo con Web Audio (chiptune): un tema para el avance y otro más intenso para el jefe MACRO-L1. Empieza al pulsar para jugar y se silencia con M junto a los efectos.
+
 ## Controles
 
 | Tecla | Acción |
@@ -20,6 +22,11 @@ Tres archivos: `index.html`, `styles.css`, `game.js`. Sin dependencias ni assets
 | H | Ver cajas de colisión |
 
 En pantallas táctiles aparecen controles en pantalla (cruceta + GOLPE, BOLA, GUARD, SALTO).
+
+## Armas recogibles
+
+- **ENZIMA-L**: bastón enzimático que duplica el daño del golpe y le da más alcance (10 usos).
+- Se recoge pasando por encima. La dejan caer los agresores grandes (y a veces los pequeños) y hay algunas repartidas por el tramo.
 
 ## Reglas del tramo
 
