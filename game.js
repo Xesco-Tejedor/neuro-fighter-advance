@@ -10,7 +10,7 @@ const WORLD_W = 1900;
 
 // ---------- AUDIO (motor chiptune nativo, igual que v5) ----------
 class SoundEngine {
-  constructor() { this.ctx = null; this.master = null; this.muted = false; }
+  constructor() { this.ctx = null; this.master = null; this.muted = false; this.music = new MusicEngine(this); }
   init() {
     try {
       if (!this.ctx) {
@@ -25,6 +25,9 @@ class SoundEngine {
     } catch (e) { this.ctx = null; }
   }
   toggleMute() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 1.3; return this.muted; }
+  musicEnsure(name) { this.music.ensure(name); }
+  weaponGet() { this.tone(392, 'triangle', 0.1, 784, 0.5); this.tone(587, 'square', 0.18, 1175, 0.35, 0.07); }
+  weaponBreak() { this.noise(0.18, 0.45); this.tone(340, 'sawtooth', 0.3, 70, 0.5); }
   tone(freq, type, dur, endFreq, vol, delay) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     try {
@@ -63,6 +66,111 @@ class SoundEngine {
   pickup() { this.tone(660, 'triangle', 0.12, 990, 0.5); this.tone(880, 'triangle', 0.15, 1320, 0.4, 0.08); }
   checkpoint() { this.tone(523, 'square', 0.14, 0, 0.35); this.tone(659, 'square', 0.14, 0, 0.35, 0.09); this.tone(784, 'square', 0.22, 0, 0.35, 0.18); }
   win() { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 'square', 0.22, 0, 0.4, i * 0.14)); }
+}
+
+
+// ---------- MÚSICA (secuenciador chiptune original, sin samples ni material externo) ----------
+// Temas compuestos para NEURO-FIGHTER: 'main' (avance) y 'boss' (MACRO-L1, más intenso).
+const MUSIC_TRACKS = {
+  main: {
+    bpm: 132, len: 64,
+    // 4 compases x 16 pasos. [nota MIDI, duración en pasos]. Progresión Am - F - G - Am.
+    lead: {
+      0: [69, 2], 2: [72, 2], 4: [76, 2], 6: [81, 4], 12: [76, 2], 14: [74, 2],
+      16: [74, 2], 18: [77, 2], 20: [81, 2], 22: [84, 4], 28: [81, 2], 30: [79, 2],
+      32: [79, 2], 34: [74, 2], 36: [71, 2], 38: [74, 4], 44: [74, 2], 46: [76, 2],
+      48: [76, 2], 50: [81, 2], 52: [84, 2], 54: [88, 4], 60: [84, 2], 62: [81, 2],
+    },
+    bassRoots: [45, 41, 43, 45], // A2 F2 G2 A2 en corcheas
+    bassEnd: 40, // E2 de paso al final del 4º compás
+    drive: false,
+  },
+  boss: {
+    bpm: 156, len: 64,
+    // Más rápido y oscuro: Am - Am - F - E, bajo en semicorcheas.
+    lead: {
+      0: [81, 2], 2: [81, 1], 3: [81, 1], 4: [79, 2], 8: [81, 2], 10: [84, 2], 12: [83, 4],
+      16: [81, 2], 18: [81, 1], 19: [81, 1], 20: [76, 2], 24: [79, 2], 26: [81, 2], 28: [86, 4],
+      32: [84, 2], 34: [84, 1], 35: [84, 1], 36: [81, 2], 40: [84, 2], 42: [86, 2], 44: [84, 4],
+      48: [83, 2], 50: [83, 1], 51: [83, 1], 52: [80, 2], 56: [83, 2], 58: [86, 2], 60: [88, 4],
+    },
+    bassRoots: [45, 45, 41, 40], // A2 A2 F2 E2
+    bassEnd: 44, // G#2 (dominante)
+    drive: true,
+  },
+};
+
+class MusicEngine {
+  constructor(sfx) { this.sfx = sfx; this.bus = null; this.name = null; this.playing = false; this.timer = null; this.step = 0; this.nextT = 0; this.nbuf = null; }
+  ensure(name) {
+    if (name !== this.name) { this.stopTrack(); this.name = name; }
+    if (!this.name || this.playing) return;
+    const ctx = this.sfx.ctx;
+    if (!ctx || ctx.state !== 'running') return; // ensure() se reintenta cada frame
+    if (!this.bus) {
+      this.bus = ctx.createGain();
+      this.bus.gain.value = 0.5;
+      this.bus.connect(this.sfx.master); // pasa por el mute maestro (tecla M)
+    }
+    this.step = 0;
+    this.nextT = ctx.currentTime + 0.08;
+    this.playing = true;
+    this.timer = setInterval(() => this.tick(), 40);
+  }
+  stopTrack() { this.playing = false; if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  tick() {
+    const ctx = this.sfx.ctx;
+    if (!this.playing || !ctx || ctx.state !== 'running') return;
+    const tr = MUSIC_TRACKS[this.name];
+    const spb = 60 / tr.bpm / 4; // duración de una semicorchea
+    while (this.nextT < ctx.currentTime + 0.15) {
+      this.scheduleStep(tr, this.step, this.nextT, spb);
+      this.nextT += spb;
+      this.step = (this.step + 1) % tr.len;
+    }
+  }
+  scheduleStep(tr, step, t, spb) {
+    const L = tr.lead[step];
+    if (L) this.note(this.midi(L[0]), 'square', L[1] * spb * 0.92, 0.2, t);
+    const bar = Math.floor(step / 16);
+    if (tr.drive || step % 2 === 0) {
+      let root = tr.bassRoots[bar];
+      if (step === 62) root = tr.bassEnd;
+      const oct = (!tr.drive && step % 16 === 4) ? 12 : 0;
+      this.note(this.midi(root + oct), 'triangle', (tr.drive ? 0.9 : 1.9) * spb, 0.24, t);
+    }
+    if (step % 4 === 2) this.hat(t, 0.05);
+    else if (tr.drive && step % 2 === 0) this.hat(t, 0.03);
+  }
+  midi(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  note(freq, type, dur, vol, t) {
+    try {
+      const ctx = this.sfx.ctx;
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.01);
+      g.gain.setValueAtTime(vol * 0.9, t + dur * 0.7);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g); g.connect(this.bus);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) { }
+  }
+  hat(t, vol) {
+    try {
+      const ctx = this.sfx.ctx;
+      if (!this.nbuf) {
+        const n = Math.floor(ctx.sampleRate * 0.04);
+        this.nbuf = ctx.createBuffer(1, n, ctx.sampleRate);
+        const d = this.nbuf.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      }
+      const src = ctx.createBufferSource(); src.buffer = this.nbuf;
+      const g = ctx.createGain(); g.gain.value = vol;
+      src.connect(g); g.connect(this.bus);
+      src.start(t);
+    } catch (e) { }
+  }
 }
 
 // ---------- DIBUJO PROCEDURAL (sin assets; estilo v5) ----------
@@ -138,6 +246,18 @@ function drawMgr(ctx, f) {
     branch(ctx, 5, cy - 1, -0.3, 9, 2, 1, wig);
   } else {
     branch(ctx, 5, cy - 2, -0.2 + wig * 0.1, 14, 2.4, 2, wig);
+  }
+
+  // ENZIMA-L (arma recogible): bastón enzimático en la mano delantera
+  if (f.weapon) {
+    const hx = punching ? 18 + ext : 14, hy = punching ? cy - 4 : cy + 2;
+    ctx.save();
+    ctx.strokeStyle = '#b8f94e'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(hx - 3, hy + 6); ctx.lineTo(hx + 9, hy - 8); ctx.stroke();
+    glowDot(ctx, hx + 9, hy - 8, 6, 'rgba(184,249,78,0.85)');
+    ctx.fillStyle = '#e9ffc0';
+    ctx.beginPath(); ctx.arc(hx + 9, hy - 8, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
   // Cuerpo celular con resplandor
@@ -405,6 +525,7 @@ class Player {
     this.guarding = false;
     this.ballCooldown = 0;
     this.stateTimer = 0;
+    this.weapon = null; // { name, dur } — ENZIMA-L recogible
   }
 }
 
@@ -471,6 +592,10 @@ class Game {
     this.projectiles = [];
     this.pickups = [];
     this.checkpoints = [];
+    this.weapons = [ // ENZIMA-L: bastón enzimático (golpe x2, 10 usos)
+      { x: 700, lane: 182, taken: false },
+      { x: 1345, lane: 182, taken: false },
+    ];
     this.camX = 0;
     this.lockActive = false;
     this.boss = null;
@@ -608,6 +733,7 @@ class Game {
     if (e.hp <= 0) {
       e.state = 'DYING';
       e.stateTimer = 0;
+      if (Math.random() < (e.big ? 1 : 0.35)) this.weapons.push({ x: e.x, lane: e.lane, taken: false });
     } else {
       e.state = 'HITSTUN';
       e.stateTimer = 0;
@@ -635,6 +761,7 @@ class Game {
   // --- actualización por frame ---
   update() {
     this.t++;
+    this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : 'main') : null);
     if (this.state !== 'play') { this.uPress = this.iPress = this.spacePress = false; return; }
 
     const p = this.player;
@@ -738,9 +865,10 @@ class Game {
     // golpe cuerpo a cuerpo del jugador (combo encadenable)
     if (p.state === 'ATTACK' && p.attackKind === 'punch') {
       const combo = [{ st: 5, ac: 9 }, { st: 5, ac: 9 }, { st: 7, ac: 12 }][p.comboStage - 1];
-      const dmg = [6, 7, 11][p.comboStage - 1];
-      const reach = [36, 38, 44][p.comboStage - 1];
-      const knock = [1.5, 2, 5][p.comboStage - 1];
+      const armed = !!p.weapon; // ENZIMA-L: mismo ritmo de golpeo, más daño y alcance
+      const dmg = [6, 7, 11][p.comboStage - 1] * (armed ? 2 : 1);
+      const reach = [36, 38, 44][p.comboStage - 1] + (armed ? 14 : 0);
+      const knock = [1.5, 2, 5][p.comboStage - 1] + (armed ? 1 : 0);
       if (p.attackFrame >= combo.st && p.attackFrame <= combo.ac) {
         const targets = (this.boss && this.boss.state !== 'DYING' && this.bossActive) ? this.enemies.concat([this.boss]) : this.enemies;
         targets.forEach(e => {
@@ -750,6 +878,10 @@ class Game {
           if (inFront && Math.abs(e.lane - p.lane) < 17 && p.z < 30) {
             p.hitSet.add(e);
             if (e.kind === 'macro') this.hitBoss(dmg, p.x, knock); else this.hitEnemy(e, dmg, p.x, knock);
+            if (armed) {
+              p.weapon.dur--;
+              if (p.weapon.dur <= 0) { p.weapon = null; this.audio.weaponBreak(); this.showToast('ENZIMA-L AGOTADA', 90); }
+            }
           }
         });
       }
@@ -922,6 +1054,17 @@ class Game {
       }
     });
 
+    // ----- armas recogibles (ENZIMA-L) -----
+    this.weapons.forEach(w => {
+      if (w.taken) return;
+      if (Math.abs(p.x - w.x) < 14 && Math.abs(p.lane - w.lane) < 13 && p.z < 22) {
+        w.taken = true;
+        p.weapon = { name: 'ENZIMA-L', dur: 10 };
+        this.audio.weaponGet();
+        this.showToast('ENZIMA-L RECOGIDA · GOLPE x2', 110);
+      }
+    });
+
     // ----- puntos de control -----
     this.checkpoints.forEach(c => {
       if (c.used) return;
@@ -1025,6 +1168,22 @@ class Game {
       ctx.textAlign = 'left';
     });
 
+    this.weapons.forEach(w => {
+      if (w.taken) return;
+      const sx = w.x - this.camX;
+      if (sx < -20 || sx > VIEW_W + 20) return;
+      const bobY = Math.sin(this.t / 12 + w.x) * 3;
+      const wy = w.lane - 10 + bobY;
+      glowDot(ctx, sx, wy, 13, 'rgba(184,249,78,0.6)');
+      ctx.save();
+      ctx.translate(sx, wy); ctx.rotate(-0.6);
+      ctx.strokeStyle = '#b8f94e'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.stroke();
+      ctx.fillStyle = '#e9ffc0';
+      ctx.beginPath(); ctx.arc(6, 0, 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    });
+
     const renderables = this.enemies.map(e => ({ f: e, fn: drawGrunt, big: e.big }));
     if (this.boss && (this.bossActive || this.boss.state === 'DYING')) {
       renderables.push({ f: this.boss, fn: drawMacro, big: true });
@@ -1080,6 +1239,12 @@ class Game {
     ctx.fillStyle = '#cfc3f5';
     ctx.font = '7px monospace';
     ctx.fillText('ENERGÍA', 40, 41);
+
+    if (this.player.weapon) {
+      ctx.fillStyle = '#b8f94e';
+      ctx.font = '7px monospace';
+      ctx.fillText('ENZIMA-L ' + '\u25ae'.repeat(this.player.weapon.dur), 40, 52);
+    }
 
     if (this.bossActive && this.boss) {
       ctx.fillStyle = '#3f0d16';
