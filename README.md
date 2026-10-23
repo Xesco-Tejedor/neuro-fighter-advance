@@ -3,7 +3,7 @@
 Dos tramos jugables de NEURO-FIGHTER en modo avance (estilo beat 'em up): MGR-01 recorre la superficie del axón para proteger la conexión.
 
 - **Tramo 1 · Fosa de Ranvier:** oleadas de agresores y **MACRO-L1** como jefe final.
-- **Tramo 2 · Vía Periférica:** nuevas variedades de agresores, la superarma **MOTO-V** y la jefa **PLACA-0**.
+- **Tramo 2 · Vía Periférica:** nuevas variedades de agresores, la superarma **MOTO-V** (pista de neón con rivales y estelas) y la jefa **PLACA-0**.
 
 **Jugar:** https://xesco-tejedor.github.io/neuro-fighter-advance/
 
@@ -29,7 +29,7 @@ En pantallas táctiles aparecen controles en pantalla (cruceta + GOLPE, BOLA, GU
 ## Armas y vehículo
 
 - **ENZIMA-L**: bastón enzimático que duplica el daño del golpe y le da más alcance (10 usos). Se recoge pasando por encima; la dejan caer los agresores grandes y hay varias repartidas.
-- **MOTO-V** (tramo 2): moto voladora que se monta pasando por encima. Durante el vuelo **arrasa a la multitud** de agresores al contacto, **U** da turbo (gasta energía) y **Espacio** salta los agregados fijos. Los golpes y obstáculos dañan su barra de integridad, no la conexión; si se rompe, sigues a pie. Al final del tramo de vuelo te deja en un punto de control.
+- **MOTO-V** (tramo 2): moto de luz futurista (silueta baja, ruedas luminosas), de diseño propio e inspirada en el género ciberpunk. Se monta pasando por encima y inicia la **pista de neón**, un tramo mucho más largo con su propia música sintética. **Espacio** salta las barreras de neón y las estelas, **U** da turbo (gasta energía) y arrasa a los agresores al contacto. Los **rivales de luz** vienen de frente dejando una **estela roja** que daña la moto; tu propia **estela cian** les corta el paso (¡CORTE!) y también puedes embestirlos. Hay anillos verdes que reparan la integridad. Los golpes y obstáculos dañan la barra de integridad, no la conexión; si se rompe, sigues a pie. Al final de la pista te deja en un punto de control.
 
 ## Agresores
 
