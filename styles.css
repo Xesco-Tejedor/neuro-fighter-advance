@@ -92,3 +92,42 @@
   }
   .tbtn.tact { font-size: 10px; border-radius: 50%; width: 52px; height: 52px; }
   .tbtn.active { background: rgba(124, 58, 237, 0.85); color: #fff; }
+
+/* Keep the full 16:9 image inside the visible mobile viewport.
+   Touch controls live in reserved space, never on top of the canvas. */
+@media (pointer: coarse) {
+  html { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    width: 100%; height: 100vh; height: 100dvh; min-height: 0;
+    padding: calc(44px + env(safe-area-inset-top, 0px))
+             calc(8px + env(safe-area-inset-right, 0px))
+             calc(138px + env(safe-area-inset-bottom, 0px))
+             calc(8px + env(safe-area-inset-left, 0px));
+  }
+  #arcade-frame {
+    flex: none; border: 0; outline: 2px solid #281242;
+    width: min(100%, calc((100dvh - 190px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) * 16 / 9));
+    height: auto; aspect-ratio: 16 / 9; max-height: none;
+  }
+  #sound-toggle {
+    top: calc(8px + env(safe-area-inset-top, 0px)) !important;
+    right: calc(8px + env(safe-area-inset-right, 0px)) !important;
+    min-height: 36px;
+  }
+  #touch-controls {
+    padding: 0 calc(10px + env(safe-area-inset-right, 0px))
+               calc(10px + env(safe-area-inset-bottom, 0px))
+               calc(10px + env(safe-area-inset-left, 0px));
+  }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  body {
+    padding: calc(8px + env(safe-area-inset-top, 0px))
+             calc(136px + env(safe-area-inset-right, 0px))
+             calc(8px + env(safe-area-inset-bottom, 0px))
+             calc(152px + env(safe-area-inset-left, 0px));
+  }
+  #arcade-frame {
+    width: min(100%, calc((100dvh - 16px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) * 16 / 9));
+  }
+}
