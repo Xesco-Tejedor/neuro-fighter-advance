@@ -1130,6 +1130,134 @@ class PlacaBoss {
   get enraged() { return this.hp < 88; }
 }
 
+// ---------- CINEMÁTICA INICIAL (attract mode: escenas originales procedurales) ----------
+function cineCaption(ctx, line1, line2) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,1,12,0.72)';
+  ctx.fillRect(0, 168, VIEW_W, 36);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd15c';
+  ctx.font = 'bold 9px monospace';
+  ctx.fillText(line1, VIEW_W / 2, 181);
+  ctx.fillStyle = '#e0d0f0';
+  ctx.font = '9px monospace';
+  ctx.fillText(line2, VIEW_W / 2, 195);
+  ctx.restore();
+}
+
+function cineFake(x, y, t, anim, facingRight = true) {
+  return { x, y, frameTimer: t, state: 'IDLE', currentAnim: anim || ((Math.floor(t / 16) % 2 === 0) ? 'idle1' : 'idle2'), facingRight, z: 0, attackFrame: 0 };
+}
+
+const CINE_SCENES = [
+  { // 1 · El axón y las conexiones
+    dur: 285,
+    draw(ctx, t) {
+      drawStageScroll(ctx, 80 - t * 0.18, t);
+      for (let i = 0; i < 3; i++) {
+        const px = ((t * 1.7 + i * 140) % (VIEW_W + 60)) - 30;
+        const py = 150 + Math.sin((t + i * 45) / 18) * 20;
+        glowDot(ctx, px, py, 7, 'rgba(34,211,238,0.75)');
+        glowDot(ctx, px, py, 2.5, 'rgba(220,255,255,0.9)');
+      }
+      cineCaption(ctx, 'DENTRO DEL CUERPO HUMANO', 'una red de axones mantiene vivas las conexiones');
+    }
+  },
+  { // 2 · Las defensas se confunden
+    dur: 300,
+    draw(ctx, t) {
+      drawStageScroll(ctx, 30, t);
+      const m1 = cineFake(66 + Math.sin(t / 40) * 5, 170, t, 'idle1', true);
+      const m2 = cineFake(316 + Math.sin(t / 33) * 5, 192, t + 30, 'idle2', false);
+      glowDot(ctx, 66, 148, 30, 'rgba(255,120,60,0.28)');
+      glowDot(ctx, 316, 170, 30, 'rgba(255,120,60,0.28)');
+      drawMacro(ctx, m1);
+      drawMacro(ctx, m2);
+      const flick = 0.16 + 0.13 * Math.sin(t / 7);
+      ctx.fillStyle = 'rgba(6,2,12,' + flick.toFixed(3) + ')';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      cineCaption(ctx, 'LAS DEFENSAS QUE DEBÍAN PROTEGERLA', 'han perdido la capacidad de distinguir');
+    }
+  },
+  { // 3 · MGR-01 al rescate
+    dur: 300,
+    draw(ctx, t) {
+      drawStageScroll(ctx, 50 - t * 0.1, t);
+      // agregados tóxicos que MGR-01 va limpiando a su paso
+      for (let i = 0; i < 5; i++) {
+        const ax = 120 + i * 52, ay = 176 + (i % 2) * 14;
+        const cleared = (40 + t * 0.55) > ax;
+        if (!cleared) {
+          glowDot(ctx, ax, ay, 6, 'rgba(120,60,180,0.55)');
+          ctx.fillStyle = '#3a1560';
+          ctx.beginPath(); ctx.arc(ax, ay, 3.5, 0, Math.PI * 2); ctx.fill();
+        } else {
+          glowDot(ctx, ax, ay, 4, 'rgba(34,211,238,0.4)');
+        }
+      }
+      const mgr = cineFake(40 + t * 0.55, 192, t);
+      glowDot(ctx, mgr.x, mgr.y - 30, 22, 'rgba(34,211,238,0.30)');
+      drawMgr(ctx, mgr);
+      cineCaption(ctx, 'MGR-01 · MICROGLÍA REPROGRAMADA', 'patrulla el axón y limpia los agregados tóxicos');
+    }
+  },
+  { // 4 · Los jefes bloquean la vía
+    dur: 290,
+    draw(ctx, t) {
+      drawStageScrollPeri(ctx, 20, t);
+      const shake = t < 30 ? (30 - t) / 30 : 0;
+      if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 3, (Math.random() - 0.5) * shake * 3);
+      const boss1 = cineFake(96, 188, t, 'idle1', true);
+      const boss2 = cineFake(292, 184, t + 20, 'idle2', false);
+      glowDot(ctx, 96, 150, 34, 'rgba(255,120,60,0.32)');
+      glowDot(ctx, 292, 148, 34, 'rgba(160,110,255,0.32)');
+      drawMacro(ctx, boss1);
+      drawPlaca(ctx, boss2);
+      cineCaption(ctx, 'MACRO-L1 Y PLACA-0', 'bloquean la vía periférica');
+    }
+  },
+  { // 5 · Logo y propósito
+    dur: 300,
+    draw(ctx, t) {
+      ctx.fillStyle = '#06020c';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      const pulse = 0.75 + 0.25 * Math.sin(t / 14);
+      glowDot(ctx, 192, 92, 90 * pulse, 'rgba(34,211,238,0.22)');
+      glowDot(ctx, 192, 92, 46 * pulse, 'rgba(124,58,237,0.30)');
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#4ee6f2';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText('NEURO-FIGHTER', 192, 82);
+      ctx.fillStyle = '#ffd15c';
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText('AVANCE', 192, 102);
+      ctx.fillStyle = '#e0d0f0';
+      ctx.font = '9px monospace';
+      ctx.fillText('Protege la conexión entre neuronas.', 192, 132);
+      ctx.fillStyle = '#a78bfa';
+      ctx.fillText('Derrotar enemigos no basta: la señal debe seguir viva.', 192, 146);
+      ctx.textAlign = 'left';
+    }
+  },
+];
+
+function drawCinematic(ctx, cine) {
+  const sc = CINE_SCENES[cine.scene] || CINE_SCENES[0];
+  ctx.fillStyle = '#06020c';
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.save();
+  sc.draw(ctx, cine.t);
+  ctx.restore();
+  const fade = 26;
+  const a = 1 - Math.min(Math.min(1, cine.t / fade), Math.min(1, (sc.dur - cine.t) / fade));
+  if (a > 0) { ctx.fillStyle = 'rgba(6,2,12,' + a.toFixed(3) + ')'; ctx.fillRect(0, 0, VIEW_W, VIEW_H); }
+  ctx.fillStyle = 'rgba(224,208,240,0.55)';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('PULSA UNA TECLA PARA JUGAR', VIEW_W - 8, VIEW_H - 8);
+  ctx.textAlign = 'left';
+}
+
 // ---------- JUEGO ----------
 class Game {
   constructor() {
@@ -1142,7 +1270,9 @@ class Game {
     this.uPress = false; this.iPress = false; this.spacePress = false;
     this.stageIdx = 0;
     this.resetWorld();
-    this.state = 'intro'; // intro, play, interlude, lost, won
+    this.cine = { scene: 0, t: 0 };
+    this.introIdle = 0;
+    this.state = 'attract'; // attract, intro, play, interlude, lost, won
     this.bindEvents();
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
@@ -1195,12 +1325,17 @@ class Game {
   bindEvents() {
     const start = () => {
       this.audio.init();
-      if (this.state === 'intro') this.state = 'play';
+      if (this.state === 'attract') { this.state = 'intro'; this.introIdle = 0; this.cine = { scene: 0, t: 0 }; }
+      else if (this.state === 'intro') this.state = 'play';
     };
     window.addEventListener('pointerdown', start);
+    // Si la ventana pierde el foco con una tecla pulsada, el keyup se pierde y la
+    // tecla queda "atascada": limpiar entradas al perder el foco u ocultarse.
+    const clearInputs = () => { for (const k in this.inputs) this.inputs[k] = false; this.uPress = this.iPress = this.spacePress = false; };
+    window.addEventListener('blur', clearInputs);
     document.getElementById('sound-toggle')?.addEventListener('click', () => { this.audio.init(); this.audio.toggleMute(); });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) { this.audio.music.stopTrack(); if (this.audio.ctx?.state === 'running') this.audio.ctx.suspend().catch(() => {}); }
+      if (document.hidden) { clearInputs(); this.audio.music.stopTrack(); if (this.audio.ctx?.state === 'running') this.audio.ctx.suspend().catch(() => {}); }
       else if (this.audio.ctx) { this.audio.music.nextT = this.audio.ctx.currentTime + 0.08; this.audio.init(); }
     });
     window.addEventListener('keydown', (e) => {
@@ -1432,6 +1567,32 @@ class Game {
     this.audio.position(this.player.x, this.camX);
     this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : (this.player.vehicle ? 'neon' : 'main')) : null);
 
+    if (this.state === 'attract') {
+      const sc = CINE_SCENES[this.cine.scene];
+      this.cine.t++;
+      if (this.cine.t >= sc.dur) {
+        this.cine.scene++;
+        this.cine.t = 0;
+        if (this.cine.scene >= CINE_SCENES.length) {
+          this.cine.scene = 0;
+          this.state = 'intro';
+          this.introIdle = 0;
+        }
+      }
+      this.uPress = this.iPress = this.spacePress = false;
+      return;
+    }
+    if (this.state === 'intro') {
+      // modo recreativa: si nadie pulsa, vuelve la cinemática
+      this.introIdle++;
+      if (this.introIdle > 840) {
+        this.introIdle = 0;
+        this.cine = { scene: 0, t: 0 };
+        this.state = 'attract';
+      }
+      this.uPress = this.iPress = this.spacePress = false;
+      return;
+    }
     if (this.state === 'interlude') {
       this.interludeTimer--;
       if (this.interludeTimer <= 0) this.loadStage(this.stageIdx + 1, true);
@@ -2053,6 +2214,7 @@ class Game {
   render() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    if (this.state === 'attract') { drawCinematic(ctx, this.cine); return; }
     ctx.save();
     if (this.shake > 0) ctx.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
 
@@ -2322,7 +2484,7 @@ class Game {
       const pulse = 0.5 + 0.5 * Math.sin(this.t / 10);
       ctx.globalAlpha = pulse;
       ctx.font = 'bold 10px monospace';
-      ctx.fillText('PULSA CUALQUIER TECLA', 192, 186);
+      ctx.fillText('PULSA CUALQUIER TECLA · TOCA LA PANTALLA', 192, 186);
       ctx.globalAlpha = 1;
     } else if (this.state === 'interlude') {
       ctx.fillStyle = 'rgba(1,12,6,0.82)';
