@@ -1298,7 +1298,7 @@ function drawCinematic(ctx, cine) {
   ctx.fillStyle = 'rgba(232,221,200,0.55)';
   ctx.font = '8px monospace';
   ctx.textAlign = 'right';
-  ctx.fillText('PULSA UNA TECLA PARA JUGAR', VIEW_W - 8, CINE_BAR - 8);
+  ctx.fillText('ENTER O BOTON JUGAR: PARTIDA', VIEW_W - 8, CINE_BAR - 8);
   ctx.textAlign = 'left';
 }
 
