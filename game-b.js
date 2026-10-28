@@ -111,6 +111,7 @@ class Game {
     this.introIdle = 0;
     this.state = 'attract'; // attract, intro, play, interlude, lost, won
     this.bindEvents();
+    this.audio.init(); // Intentar autoplay; si se bloquea, esperar gesto sin avanzar láminas.
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
   }
@@ -160,23 +161,44 @@ class Game {
   }
 
   bindEvents() {
-    const start = () => {
+    const unlock = () => {
+      const waiting = !this.audio.ctx || this.audio.ctx.state !== 'running';
       this.audio.init();
-      if (this.state === 'attract') { this.state = 'intro'; this.introIdle = 0; this.cine = { scene: 0, t: 0 }; }
-      else if (this.state === 'intro') this.state = 'play';
+      if (waiting && (this.state === 'attract' || this.state === 'intro')) {
+        this.state = 'attract'; this.cine = { scene: 0, t: 0 }; this.introIdle = 0;
+        this.cineScore.stop();
+      }
+      return waiting;
     };
-    window.addEventListener('pointerdown', start);
+    const start = () => {
+      if (unlock()) return false;
+      if (this.state === 'attract' || this.state === 'intro') return false;
+      return true;
+    };
+    window.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('button')) unlock();
+    });
+    const playButton = document.createElement('button');
+    playButton.id = 'play-button'; playButton.type = 'button'; playButton.textContent = 'JUGAR';
+    playButton.style.cssText = 'position:fixed;top:8px;left:8px;z-index:50;min-height:36px;padding:4px 12px;background:#142431;color:#ffd15c;border:1px solid #4ee6f2;border-radius:4px;font:inherit;cursor:pointer;left:calc(8px + env(safe-area-inset-left,0px));top:calc(8px + env(safe-area-inset-top,0px))';
+    document.body.appendChild(playButton);
+    playButton.addEventListener('click', () => {
+      if (unlock()) return;
+      if (this.state === 'attract' || this.state === 'intro') this.state = 'play';
+    });
     // Si la ventana pierde el foco con una tecla pulsada, el keyup se pierde y la
     // tecla queda "atascada": limpiar entradas al perder el foco u ocultarse.
     const clearInputs = () => { for (const k in this.inputs) this.inputs[k] = false; this.uPress = this.iPress = this.spacePress = false; };
     window.addEventListener('blur', clearInputs);
-    document.getElementById('sound-toggle')?.addEventListener('click', () => { this.audio.init(); this.audio.toggleMute(); });
+    document.getElementById('sound-toggle')?.addEventListener('click', () => { if (!unlock()) this.audio.toggleMute(); });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { clearInputs(); this.audio.music.stopTrack(); if (this.audio.ctx?.state === 'running') this.audio.ctx.suspend().catch(() => {}); }
       else if (this.audio.ctx) { this.audio.music.nextT = this.audio.ctx.currentTime + 0.08; this.audio.init(); }
     });
     window.addEventListener('keydown', (e) => {
-      start();
+      if (e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+      const waiting = unlock();
+      if (e.key === 'Enter' && !e.repeat && !waiting && (this.state === 'attract' || this.state === 'intro')) this.state = 'play';
       if (e.key === ' ') e.preventDefault();
       if (!this.inputs[e.key]) {
         if (e.key === 'u' || e.key === 'U') this.uPress = true;
@@ -184,7 +206,7 @@ class Game {
         if (e.key === ' ') this.spacePress = true;
       }
       this.inputs[e.key] = true;
-      if ((e.key === 'm' || e.key === 'M') && !e.repeat) this.audio.toggleMute();
+      if ((e.key === 'm' || e.key === 'M') && !e.repeat && !waiting) this.audio.toggleMute();
       if (e.key === 'h' || e.key === 'H') this.showHitboxes = !this.showHitboxes;
       if (e.key === 'Enter') {
         if (this.state === 'lost' || this.state === 'won') this.resetWorld();
@@ -197,7 +219,7 @@ class Game {
       const key = btn.dataset.key;
       const on = (e) => {
         e.preventDefault();
-        start();
+        if (!start()) return;
         if (!this.inputs[key]) {
           if (key === 'u') this.uPress = true;
           if (key === 'i') this.iPress = true;
@@ -401,6 +423,19 @@ class Game {
   // --- actualización por frame ---
   update() {
     this.t++;
+    const running = this.audio.ctx?.state === 'running';
+    const soundButton = document.getElementById('sound-toggle');
+    if (soundButton) {
+      soundButton.textContent = !running ? 'ACTIVAR AUDIO' : (this.audio.muted ? 'SONIDO: OFF' : 'SONIDO: ON');
+      soundButton.setAttribute('aria-pressed', String(running && !this.audio.muted));
+      soundButton.style.fontSize = '12px';
+    }
+    const playButton = document.getElementById('play-button');
+    if (playButton) playButton.hidden = this.state !== 'attract' && this.state !== 'intro';
+    if (this.state === 'attract' && (!running || !cineReady())) {
+      this.uPress = this.iPress = this.spacePress = false;
+      return;
+    }
     this.audio.position(this.player.x, this.camX);
     this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : (this.player.vehicle ? 'neon' : 'main')) : null);
     // banda sonora noir de la cinemática: solo attract/intro; la partida usa sus pistas de siempre
@@ -1058,7 +1093,17 @@ class Game {
   render() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
-    if (this.state === 'attract') { drawCinematic(ctx, this.cine); return; }
+    if (this.state === 'attract') {
+      if (!this.audio.ctx || this.audio.ctx.state !== 'running') {
+        ctx.fillStyle = '#06020c'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+        ctx.textAlign = 'center'; ctx.fillStyle = '#e8ddc8'; ctx.font = 'bold 12px monospace';
+        ctx.fillText('TOCA O PULSA UNA TECLA', VIEW_W / 2, 92);
+        ctx.font = '10px monospace'; ctx.fillStyle = '#d9a05b';
+        ctx.fillText('PARA VER Y ESCUCHAR LA CINEMATICA', VIEW_W / 2, 115);
+        ctx.textAlign = 'left'; return;
+      }
+      drawCinematic(ctx, this.cine); return;
+    }
     ctx.save();
     if (this.shake > 0) ctx.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
 
