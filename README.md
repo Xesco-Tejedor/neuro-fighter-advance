@@ -9,6 +9,8 @@ Dos tramos jugables de NEURO-FIGHTER en modo avance (estilo beat 'em up): MGR-01
 
 Tres archivos: `index.html`, `styles.css`, `game.js`. Sin dependencias ni assets externos; todo se dibuja y suena por código.
 
+**Cinemática inicial** estilo recreativa: al cargar, una secuencia de escenas originales presenta el argumento (MGR-01, las defensas confundidas, la conexión entre neuronas). Se salta con cualquier tecla o toque; si nadie juega, vuelve a reproducirse como una máquina en espera.
+
 **Música original** generada en vivo con Web Audio (chiptune): un tema para el avance y otro más intenso para los jefes. Empieza al pulsar para jugar y se silencia con M junto a los efectos.
 
 ## Controles
