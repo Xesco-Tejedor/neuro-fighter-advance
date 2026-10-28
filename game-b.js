@@ -196,6 +196,7 @@ class Game {
       else if (this.audio.ctx) { this.audio.music.nextT = this.audio.ctx.currentTime + 0.08; this.audio.init(); }
     });
     window.addEventListener('keydown', (e) => {
+      if (e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
       const waiting = unlock();
       if (e.key === 'Enter' && !e.repeat && !waiting && (this.state === 'attract' || this.state === 'intro')) this.state = 'play';
       if (e.key === ' ') e.preventDefault();
@@ -431,7 +432,7 @@ class Game {
     }
     const playButton = document.getElementById('play-button');
     if (playButton) playButton.hidden = this.state !== 'attract' && this.state !== 'intro';
-    if (this.state === 'attract' && !running) {
+    if (this.state === 'attract' && (!running || !cineReady())) {
       this.uPress = this.iPress = this.spacePress = false;
       return;
     }
