@@ -1130,277 +1130,132 @@ class PlacaBoss {
   get enraged() { return this.hp < 88; }
 }
 
-// ---------- CINEMÁTICA INICIAL (attract: noir western, láminas ilustradas originales) ----------
-// Motion comic: láminas ilustradas con movimiento de cámara lento, bandas
-// letterbox, grano y viñeta. Las láminas se precargan antes de arrancar la
-// secuencia para que ninguna escena empiece en negro.
-const CINE_SRCS = ['cine/frontera.jpg', 'cine/guardianes.jpg', 'cine/extrano.jpg', 'cine/duelo.jpg', 'cine/amenazas.jpg', 'cine/emblema.jpg'];
-let cineLoaded = 0;
-const CINE_IMGS = CINE_SRCS.map(src => {
-  const im = new Image();
-  im.onload = () => { cineLoaded++; };
-  im.onerror = () => { cineLoaded++; }; // si una falta, no bloquear el arranque
-  im.src = src;
-  return im;
-});
-const cineReady = () => cineLoaded >= CINE_SRCS.length;
-const CINE_BAR = Math.round(VIEW_H * 0.115); // bandas letterbox
-
-// grano de película reutilizable
-const cineGrain = document.createElement('canvas');
-cineGrain.width = 192; cineGrain.height = 108;
-function refillCineGrain() {
-  const g = cineGrain.getContext('2d');
-  const img = g.createImageData(192, 108);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = 110 + Math.random() * 90;
-    img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v;
-    img.data[i + 3] = Math.random() * 46;
-  }
-  g.putImageData(img, 0, 0);
-}
-
-// encuadre "cover" con zoom suave hacia un punto de foco (fx, fy en fracción de imagen)
-function drawCineKB(ctx, img, t, dur, fx, fy, s0, s1, dy = 0) {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  if (!img.complete || !img.naturalWidth) return;
-  const p = Math.min(1, t / dur);
-  const e = p * p * (3 - 2 * p);
-  const z = s0 + (s1 - s0) * e;
-  const base = Math.max(VIEW_W / img.naturalWidth, VIEW_H / img.naturalHeight);
-  const sc = base * z;
+// ---------- CINEMÁTICA INICIAL (attract mode: escenas originales procedurales) ----------
+function cineCaption(ctx, line1, line2) {
   ctx.save();
-  ctx.translate(VIEW_W * fx, VIEW_H * (fy + dy));
-  ctx.scale(sc, sc);
-  ctx.drawImage(img, -img.naturalWidth * fx, -img.naturalHeight * fy);
+  ctx.fillStyle = 'rgba(4,1,12,0.72)';
+  ctx.fillRect(0, 168, VIEW_W, 36);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd15c';
+  ctx.font = 'bold 9px monospace';
+  ctx.fillText(line1, VIEW_W / 2, 181);
+  ctx.fillStyle = '#e0d0f0';
+  ctx.font = '9px monospace';
+  ctx.fillText(line2, VIEW_W / 2, 195);
   ctx.restore();
 }
 
-function cineCaption(ctx, line1, line2) {
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#e8ddc8';
-  ctx.font = 'bold 9px monospace';
-  ctx.fillText(line1, VIEW_W / 2, VIEW_H - CINE_BAR + 12);
-  ctx.fillStyle = 'rgba(214,200,175,0.85)';
-  ctx.font = '8px monospace';
-  ctx.fillText(line2, VIEW_W / 2, VIEW_H - CINE_BAR + 21);
-  ctx.textAlign = 'left';
+function cineFake(x, y, t, anim, facingRight = true) {
+  return { x, y, frameTimer: t, state: 'IDLE', currentAnim: anim || ((Math.floor(t / 16) % 2 === 0) ? 'idle1' : 'idle2'), facingRight, z: 0, attackFrame: 0 };
 }
 
 const CINE_SCENES = [
-  { // 1 · La frontera: el axón como camino bajo una luna enorme
-    dur: 300,
-    cap: ['EN LA FRONTERA DEL SISTEMA NERVIOSO', 'un territorio donde la señal debe seguir viva'],
-    draw(ctx, t) { drawCineKB(ctx, CINE_IMGS[0], t, 300, 0.55, 0.32, 1.02, 1.15); }
-  },
-  { // 2 · Los guardianes perdieron el rumbo: contrapicado del ataque a la conexión
-    dur: 340,
-    cap: ['SUS GUARDIANES PERDIERON EL RUMBO', 'las defensas atacan la conexión que debían proteger'],
-    draw(ctx, t) { drawCineKB(ctx, CINE_IMGS[1], t, 340, 0.32, 0.62, 1.06, 1.26); }
-  },
-  { // 3 · El extraño: contrapicado heroico, la cámara sube del suelo a su rostro
-    dur: 300,
-    cap: ['ENTONCES LLEGÓ UN EXTRAÑO', 'MGR-01 · microglía reprogramada'],
+  { // 1 · El axón y las conexiones
+    dur: 285,
     draw(ctx, t) {
-      const p = Math.min(1, t / 300);
-      const e = p * p * (3 - 2 * p);
-      drawCineKB(ctx, CINE_IMGS[2], t, 300, 0.49, 0.093, 1.02, 2.10, 0.127 + 0.100 * e);
+      drawStageScroll(ctx, 80 - t * 0.18, t);
+      for (let i = 0; i < 3; i++) {
+        const px = ((t * 1.7 + i * 140) % (VIEW_W + 60)) - 30;
+        const py = 150 + Math.sin((t + i * 45) / 18) * 20;
+        glowDot(ctx, px, py, 7, 'rgba(34,211,238,0.75)');
+        glowDot(ctx, px, py, 2.5, 'rgba(220,255,255,0.9)');
+      }
+      cineCaption(ctx, 'DENTRO DEL CUERPO HUMANO', 'una red de axones mantiene vivas las conexiones');
     }
   },
-  { // 4 · El ajuste de cuentas: duelo de miradas
-    dur: 330,
-    cap: ['MACRO-L1 Y PLACA-0 LE ESPERAN', 'en la vía periférica se hará justicia'],
-    draw(ctx, t) { drawCineKB(ctx, CINE_IMGS[3], t, 330, 0.50, 0.52, 1.05, 1.22); }
-  },
-  { // 5 · Las que vienen: amenazas futuras insinuadas en la cresta
+  { // 2 · Las defensas se confunden
     dur: 300,
-    cap: ['Y NO ESTABAN SOLOS', 'otras sombras aguardan en la vía periférica'],
-    draw(ctx, t) { drawCineKB(ctx, CINE_IMGS[4], t, 300, 0.50, 0.32, 1.02, 1.05); }
-  },
-  { // 6 · Título
-    dur: 340,
-    band: 'Protege la conexión entre neuronas.',
     draw(ctx, t) {
-      drawCineKB(ctx, CINE_IMGS[5], t, 340, 0.50, 0.52, 1.04, 1.14);
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      drawStageScroll(ctx, 30, t);
+      const m1 = cineFake(66 + Math.sin(t / 40) * 5, 170, t, 'idle1', true);
+      const m2 = cineFake(316 + Math.sin(t / 33) * 5, 192, t + 30, 'idle2', false);
+      glowDot(ctx, 66, 148, 30, 'rgba(255,120,60,0.28)');
+      glowDot(ctx, 316, 170, 30, 'rgba(255,120,60,0.28)');
+      drawMacro(ctx, m1);
+      drawMacro(ctx, m2);
+      const flick = 0.16 + 0.13 * Math.sin(t / 7);
+      ctx.fillStyle = 'rgba(6,2,12,' + flick.toFixed(3) + ')';
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-      // banda de gradación suave tras el bloque del título
-      const g = ctx.createLinearGradient(0, VIEW_H * 0.26, 0, VIEW_H * 0.64);
-      g.addColorStop(0, 'rgba(0,0,0,0)');
-      g.addColorStop(0.35, 'rgba(0,0,0,0.74)');
-      g.addColorStop(0.72, 'rgba(0,0,0,0.74)');
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, VIEW_H * 0.26, VIEW_W, VIEW_H * 0.38);
+      cineCaption(ctx, 'LAS DEFENSAS QUE DEBÍAN PROTEGERLA', 'han perdido la capacidad de distinguir');
+    }
+  },
+  { // 3 · MGR-01 al rescate
+    dur: 300,
+    draw(ctx, t) {
+      drawStageScroll(ctx, 50 - t * 0.1, t);
+      // agregados tóxicos que MGR-01 va limpiando a su paso
+      for (let i = 0; i < 5; i++) {
+        const ax = 120 + i * 52, ay = 176 + (i % 2) * 14;
+        const cleared = (40 + t * 0.55) > ax;
+        if (!cleared) {
+          glowDot(ctx, ax, ay, 6, 'rgba(120,60,180,0.55)');
+          ctx.fillStyle = '#3a1560';
+          ctx.beginPath(); ctx.arc(ax, ay, 3.5, 0, Math.PI * 2); ctx.fill();
+        } else {
+          glowDot(ctx, ax, ay, 4, 'rgba(34,211,238,0.4)');
+        }
+      }
+      const mgr = cineFake(40 + t * 0.55, 192, t);
+      glowDot(ctx, mgr.x, mgr.y - 30, 22, 'rgba(34,211,238,0.30)');
+      drawMgr(ctx, mgr);
+      cineCaption(ctx, 'MGR-01 · MICROGLÍA REPROGRAMADA', 'patrulla el axón y limpia los agregados tóxicos');
+    }
+  },
+  { // 4 · Los jefes bloquean la vía
+    dur: 290,
+    draw(ctx, t) {
+      drawStageScrollPeri(ctx, 20, t);
+      const shake = t < 30 ? (30 - t) / 30 : 0;
+      if (shake > 0) ctx.translate((Math.random() - 0.5) * shake * 3, (Math.random() - 0.5) * shake * 3);
+      const boss1 = cineFake(96, 188, t, 'idle1', true);
+      const boss2 = cineFake(292, 184, t + 20, 'idle2', false);
+      glowDot(ctx, 96, 150, 34, 'rgba(255,120,60,0.32)');
+      glowDot(ctx, 292, 148, 34, 'rgba(160,110,255,0.32)');
+      drawMacro(ctx, boss1);
+      drawPlaca(ctx, boss2);
+      cineCaption(ctx, 'MACRO-L1 Y PLACA-0', 'bloquean la vía periférica');
+    }
+  },
+  { // 5 · Logo y propósito
+    dur: 300,
+    draw(ctx, t) {
+      ctx.fillStyle = '#06020c';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      const pulse = 0.75 + 0.25 * Math.sin(t / 14);
+      glowDot(ctx, 192, 92, 90 * pulse, 'rgba(34,211,238,0.22)');
+      glowDot(ctx, 192, 92, 46 * pulse, 'rgba(124,58,237,0.30)');
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#e8ddc8';
+      ctx.fillStyle = '#4ee6f2';
       ctx.font = 'bold 20px monospace';
-      ctx.fillText('NEURO-FIGHTER', VIEW_W / 2, VIEW_H * 0.42);
-      ctx.fillStyle = '#f0c078';
-      ctx.fillRect(VIEW_W / 2 - 60, VIEW_H * 0.455, 120, 1);
-      ctx.fillStyle = '#d9a05b';
-      ctx.font = 'bold 10px monospace';
-      ctx.fillText('A  V  A  N  C  E', VIEW_W / 2, VIEW_H * 0.53);
+      ctx.fillText('NEURO-FIGHTER', 192, 82);
+      ctx.fillStyle = '#ffd15c';
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText('AVANCE', 192, 102);
+      ctx.fillStyle = '#e0d0f0';
+      ctx.font = '9px monospace';
+      ctx.fillText('Protege la conexión entre neuronas.', 192, 132);
+      ctx.fillStyle = '#a78bfa';
+      ctx.fillText('Derrotar enemigos no basta: la señal debe seguir viva.', 192, 146);
       ctx.textAlign = 'left';
     }
   },
 ];
 
 function drawCinematic(ctx, cine) {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  // precarga: la secuencia no arranca hasta tener todas las láminas
-  if (!cineReady()) {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#e8ddc8';
-    ctx.font = 'bold 10px monospace';
-    ctx.fillText('CARGANDO…', VIEW_W / 2, VIEW_H / 2);
-    ctx.textAlign = 'left';
-    return;
-  }
   const sc = CINE_SCENES[cine.scene] || CINE_SCENES[0];
+  ctx.fillStyle = '#06020c';
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.save();
   sc.draw(ctx, cine.t);
   ctx.restore();
-  // fundidos entre escenas
   const fade = 26;
   const a = 1 - Math.min(Math.min(1, cine.t / fade), Math.min(1, (sc.dur - cine.t) / fade));
-  if (a > 0) { ctx.fillStyle = 'rgba(0,0,0,' + a.toFixed(3) + ')'; ctx.fillRect(0, 0, VIEW_W, VIEW_H); }
-  // bandas letterbox
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, VIEW_W, CINE_BAR);
-  ctx.fillRect(0, VIEW_H - CINE_BAR, VIEW_W, CINE_BAR);
-  // rótulos sobre la banda negra inferior, contraste pleno
-  if (sc.cap) cineCaption(ctx, sc.cap[0], sc.cap[1]);
-  if (sc.band) {
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#e8ddc8';
-    ctx.font = '8px monospace';
-    ctx.fillText(sc.band, VIEW_W / 2, VIEW_H - CINE_BAR + 13);
-    ctx.textAlign = 'left';
-  }
-  // grano de película
-  if (cine.t % 3 === 0) refillCineGrain();
-  ctx.save();
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.globalAlpha = 0.55;
-  ctx.drawImage(cineGrain, 0, 0, VIEW_W, VIEW_H);
-  ctx.restore();
-  // viñeta
-  const v = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.35, VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.78);
-  v.addColorStop(0, 'rgba(0,0,0,0)');
-  v.addColorStop(1, 'rgba(0,0,0,0.62)');
-  ctx.fillStyle = v;
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-  // pista de inicio sobre la banda superior
-  ctx.fillStyle = 'rgba(232,221,200,0.55)';
+  if (a > 0) { ctx.fillStyle = 'rgba(6,2,12,' + a.toFixed(3) + ')'; ctx.fillRect(0, 0, VIEW_W, VIEW_H); }
+  ctx.fillStyle = 'rgba(224,208,240,0.55)';
   ctx.font = '8px monospace';
   ctx.textAlign = 'right';
-  ctx.fillText('PULSA UNA TECLA PARA JUGAR', VIEW_W - 8, CINE_BAR - 8);
+  ctx.fillText('PULSA UNA TECLA PARA JUGAR', VIEW_W - 8, VIEW_H - 8);
   ctx.textAlign = 'left';
-}
-
-// ---------- BANDA SONORA DE LA CINEMÁTICA (arreglo noir original del tema de la partida) ----------
-// El tema real de la partida (MUSIC_TRACKS.main) tres veces más lento, con viento,
-// drone en la tónica y disonancia de tritono en las escenas tensas. Suena en el
-// attract y en la intro cuando el audio ya está desbloqueado por el jugador;
-// respeta el silencio (M) al ir por el mismo bus de música. La música de la
-// partida no cambia.
-class CineScore {
-  constructor() { this.started = false; this.timer = null; this.step = 0; this.nextT = 0; this.lastThump = -1; this.nodes = null; }
-  start(sfx) {
-    if (this.started) return;
-    const ctx = sfx.ctx;
-    if (!ctx || ctx.state !== 'running' || !sfx.noiseBuffer) return;
-    const master = ctx.createGain();
-    master.gain.value = 0.6;
-    master.connect(sfx.musicBus);
-    // viento: ruido filtrado con LFO (reutiliza el buffer de ruido del motor)
-    const noise = ctx.createBufferSource();
-    noise.buffer = sfx.noiseBuffer; noise.loop = true;
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.6;
-    const ng = ctx.createGain(); ng.gain.value = 0.05;
-    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.09;
-    const lfoG = ctx.createGain(); lfoG.gain.value = 0.028;
-    lfo.connect(lfoG); lfoG.connect(ng.gain);
-    noise.connect(bp); bp.connect(ng); ng.connect(master);
-    noise.start(); lfo.start();
-    // drone en la tónica (la1, como el bajo del tema)
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 170;
-    const dg = ctx.createGain(); dg.gain.value = 0.055;
-    lp.connect(dg); dg.connect(master);
-    const drones = [55, 55.4].map(f => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); return o; });
-    // disonancia de tritono, crece en las escenas tensas
-    const disGain = ctx.createGain(); disGain.gain.value = 0.012; disGain.connect(master);
-    const dis = [77.78, 78.3].map(f => { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; o.connect(disGain); o.start(); return o; });
-    this.nodes = { master, noise, lfo, drones, dis, disGain };
-    this.nextT = ctx.currentTime + 0.15;
-    this.step = 0;
-    this.timer = setInterval(() => this.tick(sfx), 60);
-    this.started = true;
-  }
-  stop() {
-    if (!this.started) return;
-    this.started = false;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    const n = this.nodes;
-    this.nodes = null;
-    if (n) {
-      try { n.master.gain.setTargetAtTime(0, n.master.context.currentTime, 0.1); } catch (e) {}
-      setTimeout(() => {
-        try { n.noise.stop(); n.lfo.stop(); n.drones.forEach(o => o.stop()); n.dis.forEach(o => o.stop()); n.master.disconnect(); } catch (e) {}
-      }, 400);
-    }
-  }
-  tone(sfx, freq, at, dur, vol, type) {
-    const ctx = sfx.ctx; const master = this.nodes && this.nodes.master;
-    if (!ctx || !master) return;
-    const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
-    const vib = ctx.createOscillator(); vib.frequency.value = 4.6;
-    const vibG = ctx.createGain(); vibG.gain.value = freq * 0.005;
-    vib.connect(vibG); vibG.connect(o.frequency);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, at);
-    g.linearRampToValueAtTime(vol, at + Math.min(0.4, dur * 0.3));
-    g.setValueAtTime(vol, at + dur * 0.65);
-    g.linearRampToValueAtTime(0, at + dur);
-    o.connect(g); g.connect(master);
-    o.start(at); o.stop(at + dur + 0.05);
-    vib.start(at); vib.stop(at + dur + 0.05);
-  }
-  tick(sfx) {
-    const ctx = sfx.ctx;
-    if (!this.started || !ctx || ctx.state !== 'running') return;
-    const spb = 60 / 42 / 4; // la partida suena a 132: mismo tema, tres veces más lento
-    if (this.nextT < ctx.currentTime - 0.3) this.nextT = ctx.currentTime + 0.05;
-    while (this.nextT < ctx.currentTime + 0.25) {
-      const e = MUSIC_TRACKS.main.lead[this.step];
-      if (e) {
-        const dur = e[1] * spb * 1.15;
-        this.tone(sfx, 440 * Math.pow(2, (e[0] - 69) / 12), this.nextT, dur, 0.12, 'sine');
-        this.tone(sfx, 440 * Math.pow(2, (e[0] - 12 - 69) / 12), this.nextT, dur, 0.05, 'triangle');
-      }
-      this.nextT += spb;
-      this.step = (this.step + 1) % 64;
-    }
-  }
-  update(sfx, scene, frame) {
-    if (!this.started) this.start(sfx);
-    if (!this.started || !this.nodes) return;
-    const ctx = sfx.ctx;
-    // más disonancia en el ataque de los guardianes y en el duelo
-    const target = (scene === 1 || scene === 3) ? 0.075 : 0.012;
-    this.nodes.disGain.gain.setTargetAtTime(target, ctx.currentTime, 1.2);
-    // pulso de tensión en el duelo
-    if (scene === 3) {
-      const beat = Math.floor(frame / 72);
-      if (beat !== this.lastThump && frame % 72 === 0) {
-        this.lastThump = beat;
-        this.tone(sfx, 52, ctx.currentTime, 0.35, 0.20, 'sine');
-      }
-    }
-  }
 }
 
 // ---------- JUEGO ----------
@@ -1409,7 +1264,6 @@ class Game {
     this.canvas = document.getElementById('stage');
     this.ctx = this.canvas.getContext('2d');
     this.audio = new SoundEngine();
-    this.cineScore = new CineScore();
     this.inputs = {};
     this.showHitboxes = false;
     this.t = 0;
@@ -1712,15 +1566,8 @@ class Game {
     this.t++;
     this.audio.position(this.player.x, this.camX);
     this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : (this.player.vehicle ? 'neon' : 'main')) : null);
-    // banda sonora noir de la cinemática: solo attract/intro; la partida usa sus pistas de siempre
-    if (this.state === 'attract' || this.state === 'intro') {
-      this.cineScore.update(this.audio, this.state === 'attract' ? this.cine.scene : -1, this.state === 'attract' ? this.cine.t : 0);
-    } else {
-      this.cineScore.stop();
-    }
 
     if (this.state === 'attract') {
-      if (!cineReady()) { this.uPress = this.iPress = this.spacePress = false; return; }
       const sc = CINE_SCENES[this.cine.scene];
       this.cine.t++;
       if (this.cine.t >= sc.dur) {
