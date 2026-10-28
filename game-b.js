@@ -53,9 +53,9 @@ class CineScore {
     vib.connect(vibG); vibG.connect(o.frequency);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, at);
-    g.linearRampToValueAtTime(vol, at + Math.min(0.4, dur * 0.3));
-    g.setValueAtTime(vol, at + dur * 0.65);
-    g.linearRampToValueAtTime(0, at + dur);
+    g.gain.linearRampToValueAtTime(vol, at + Math.min(0.4, dur * 0.3));
+    g.gain.setValueAtTime(vol, at + dur * 0.65);
+    g.gain.linearRampToValueAtTime(0, at + dur);
     o.connect(g); g.connect(master);
     o.start(at); o.stop(at + dur + 0.05);
     vib.start(at); vib.stop(at + dur + 0.05);
