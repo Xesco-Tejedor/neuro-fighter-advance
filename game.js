@@ -73,66 +73,109 @@ const STAGES = [
   },
 ];
 
-// ---------- AUDIO (motor chiptune nativo, igual que v5) ----------
+// ---------- AUDIO ARCADE ESTÉREO (síntesis original, sin muestras externas) ----------
 class SoundEngine {
-  constructor() { this.ctx = null; this.master = null; this.muted = false; this.music = new MusicEngine(this); }
+  constructor() {
+    this.ctx = null; this.master = null; this.muted = false;
+    this.music = new MusicEngine(this); this.voices = 0; this.lastHit = -1;
+    this.pan = 0; this.noiseBuffer = null;
+  }
   init() {
     try {
       if (!this.ctx) {
-        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        this.master = this.ctx.createGain();
-        this.master.gain.value = 1.3;
-        const comp = this.ctx.createDynamicsCompressor();
-        this.master.connect(comp);
-        comp.connect(this.ctx.destination);
+        const ctx = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.78;
+        this.mix = ctx.createGain(); this.mix.gain.value = 0.65;
+        this.musicBus = ctx.createGain(); this.musicBus.gain.value = 0.62;
+        this.fxBus = ctx.createGain(); this.fxBus.gain.value = 0.85;
+        this.musicBus.connect(this.mix); this.fxBus.connect(this.mix);
+        // Sala corta: dos reflexiones distintas, sin realimentación ni colas infinitas.
+        this.room = ctx.createGain(); this.room.gain.value = 0.12;
+        const roomHP = ctx.createBiquadFilter(); roomHP.type = 'highpass'; roomHP.frequency.value = 420;
+        const roomLP = ctx.createBiquadFilter(); roomLP.type = 'lowpass'; roomLP.frequency.value = 4300;
+        this.room.connect(roomHP); roomHP.connect(roomLP);
+        [[0.043, -0.8], [0.071, 0.8]].forEach(([time, pan]) => {
+          const d = ctx.createDelay(0.2); d.delayTime.value = time;
+          const p = ctx.createStereoPanner(); p.pan.value = pan;
+          roomLP.connect(d); d.connect(p); p.connect(this.mix);
+        });
+        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 28;
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -13; comp.knee.value = 10; comp.ratio.value = 5;
+        comp.attack.value = 0.003; comp.release.value = 0.16;
+        // Techo suave, con margen de salida incluso al coincidir varios impactos.
+        const limiter = ctx.createWaveShaper(); const curve = new Float32Array(4097);
+        for (let i = 0; i < curve.length; i++) curve[i] = 0.88 * Math.tanh(1.2 * (i * 2 / (curve.length - 1) - 1));
+        limiter.curve = curve; limiter.oversample = '2x';
+        this.mix.connect(hp); hp.connect(comp); comp.connect(limiter);
+        limiter.connect(this.master); this.master.connect(ctx.destination);
+        const n = ctx.sampleRate; this.noiseBuffer = ctx.createBuffer(1, n, n);
+        const data = this.noiseBuffer.getChannelData(0);
+        for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
       }
-      if (this.ctx.state !== 'running') this.ctx.resume();
-    } catch (e) { this.ctx = null; }
+      if (this.ctx.state === 'suspended' && !document.hidden) this.ctx.resume().catch(() => {});
+    } catch (e) { /* El juego sigue funcionando si no hay Web Audio. */ }
   }
-  toggleMute() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 1.3; return this.muted; }
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this.master) {
+      const t = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(t);
+      this.master.gain.setTargetAtTime(this.muted ? 0 : 0.78, t, 0.008);
+    }
+    const btn = document.getElementById('sound-toggle');
+    if (btn) { btn.textContent = this.muted ? 'SONIDO: OFF' : 'SONIDO: ON'; btn.setAttribute('aria-pressed', String(this.muted)); }
+    return this.muted;
+  }
+  position(x, camera = 0) { this.pan = Math.max(-0.8, Math.min(0.8, ((x - camera) / VIEW_W * 2 - 1) * 0.8)); }
   musicEnsure(name) { this.music.ensure(name); }
-  weaponGet() { this.tone(392, 'triangle', 0.1, 784, 0.5); this.tone(587, 'square', 0.18, 1175, 0.35, 0.07); }
-  weaponBreak() { this.noise(0.18, 0.45); this.tone(340, 'sawtooth', 0.3, 70, 0.5); }
-  boost() { this.tone(220, 'sawtooth', 0.3, 920, 0.5); this.noise(0.12, 0.25); }
-  enemyShot() { this.tone(300, 'square', 0.16, 620, 0.35); }
-  tone(freq, type, dur, endFreq, vol, delay) {
-    if (!this.ctx || this.ctx.state !== 'running') return;
-    try {
-      const t0 = this.ctx.currentTime + (delay || 0);
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = type;
-      osc.frequency.setValueAtTime(freq, t0);
-      if (endFreq > 0) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
-      g.gain.setValueAtTime(vol, t0);
-      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-      osc.connect(g); g.connect(this.master);
-      osc.start(t0); osc.stop(t0 + dur + 0.02);
-    } catch (e) { }
+  route(source, gain, duration, pan = this.pan, bus = this.fxBus, wet = 0.18) {
+    const ctx = this.ctx; const p = ctx.createStereoPanner(); p.pan.value = pan;
+    const send = ctx.createGain(); send.gain.value = wet;
+    source.connect(gain); gain.connect(p); p.connect(bus); p.connect(send); send.connect(this.room);
+    this.voices++;
+    const cleanup = () => { source.disconnect(); gain.disconnect(); p.disconnect(); send.disconnect(); this.voices--; };
+    source.onended = cleanup; return cleanup;
   }
-  noise(dur, vol) {
-    if (!this.ctx || this.ctx.state !== 'running') return;
-    try {
-      const n = Math.floor(this.ctx.sampleRate * dur);
-      const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      const g = this.ctx.createGain();
-      g.gain.value = vol;
-      src.connect(g); g.connect(this.master);
-      src.start();
-    } catch (e) { }
+  tone(freq, type, dur, endFreq, vol, delay = 0, pan = this.pan, bus = this.fxBus) {
+    if (!this.ctx || this.ctx.state !== 'running' || this.muted || this.voices >= 64) return;
+    const t = this.ctx.currentTime + delay; const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (endFreq > 0) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    this.route(o, g, dur, pan, bus); o.start(t); o.stop(t + dur + 0.01);
   }
-  hit() { this.noise(0.1, 0.5); this.tone(520, 'square', 0.12, 120, 0.5); }
-  fireball() { this.tone(500, 'triangle', 0.3, 1400, 0.6); this.tone(250, 'square', 0.25, 700, 0.25); }
-  jump() { this.tone(300, 'square', 0.18, 700, 0.4); }
-  block() { this.tone(900, 'square', 0.07, 500, 0.4); this.noise(0.05, 0.3); }
-  ko() { this.tone(700, 'sawtooth', 0.7, 80, 0.6); this.tone(500, 'square', 0.7, 60, 0.4, 0.15); this.noise(0.4, 0.4); }
-  pickup() { this.tone(660, 'triangle', 0.12, 990, 0.5); this.tone(880, 'triangle', 0.15, 1320, 0.4, 0.08); }
-  checkpoint() { this.tone(523, 'square', 0.14, 0, 0.35); this.tone(659, 'square', 0.14, 0, 0.35, 0.09); this.tone(784, 'square', 0.22, 0, 0.35, 0.18); }
-  win() { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 'square', 0.22, 0, 0.4, i * 0.14)); }
+  noise(dur, vol, cutoff = 1800, highpass = false) {
+    if (!this.ctx || this.ctx.state !== 'running' || this.muted || this.voices >= 64) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const s = ctx.createBufferSource(); s.buffer = this.noiseBuffer;
+    const f = ctx.createBiquadFilter(); f.type = highpass ? 'highpass' : 'lowpass'; f.frequency.value = cutoff;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); const cleanup = this.route(f, g, dur);
+    s.onended = () => { s.disconnect(); cleanup(); };
+    s.start(t, Math.random() * 0.5); s.stop(t + dur);
+  }
+  hit(heavy = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime; if (t - this.lastHit < 0.025) return; this.lastHit = t;
+    this.noise(0.075, 0.34, 2200); // ataque seco
+    this.tone(heavy ? 150 : 195, 'sine', 0.19, 48, heavy ? 0.8 : 0.64); // cuerpo grave
+    this.tone(680, 'triangle', 0.065, 115, 0.32);
+    if (this.music.bus) { const g = this.music.bus.gain; g.cancelScheduledValues(t); g.setValueAtTime(0.34, t); g.linearRampToValueAtTime(0.62, t + 0.16); }
+  }
+  weaponGet() { this.tone(392, 'triangle', 0.16, 784, 0.4); this.tone(587, 'sine', 0.3, 1175, 0.3, 0.07); }
+  weaponBreak() { this.noise(0.22, 0.35, 3000); this.tone(260, 'sawtooth', 0.26, 55, 0.25); }
+  boost() { this.tone(95, 'sawtooth', 0.35, 620, 0.24); this.noise(0.22, 0.24, 1600); }
+  enemyShot() { this.tone(540, 'triangle', 0.17, 180, 0.26); }
+  fireball() { this.tone(180, 'sawtooth', 0.32, 950, 0.24); this.tone(90, 'sine', 0.3, 420, 0.42); this.noise(0.18, 0.18, 3000); }
+  jump() { this.tone(240, 'triangle', 0.19, 680, 0.25); }
+  block() { this.tone(1180, 'triangle', 0.12, 710, 0.32); this.tone(1730, 'sine', 0.09, 940, 0.18); this.noise(0.045, 0.22, 4000, true); }
+  ko() { this.hit(true); this.tone(180, 'sawtooth', 0.65, 38, 0.25); this.noise(0.35, 0.28, 950); }
+  pickup() { this.tone(660, 'sine', 0.18, 990, 0.38); this.tone(880, 'triangle', 0.26, 1320, 0.24, 0.08); }
+  checkpoint() { [523, 659, 784].forEach((f, i) => this.tone(f, 'triangle', 0.28, 0, 0.3, i * 0.09, (i - 1) * 0.35)); }
+  win() { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 'triangle', 0.4, 0, 0.32, i * 0.14, (i - 1.5) * 0.25)); }
 }
 
 // ---------- MÚSICA (secuenciador chiptune original, sin samples ni material externo) ----------
@@ -192,8 +235,8 @@ class MusicEngine {
     if (!ctx || ctx.state !== 'running') return;
     if (!this.bus) {
       this.bus = ctx.createGain();
-      this.bus.gain.value = 0.5;
-      this.bus.connect(this.sfx.master);
+      this.bus.gain.value = 0.62;
+      this.bus.connect(this.sfx.musicBus);
     }
     this.step = 0;
     this.nextT = ctx.currentTime + 0.08;
@@ -206,6 +249,7 @@ class MusicEngine {
     if (!this.playing || !ctx || ctx.state !== 'running') return;
     const tr = MUSIC_TRACKS[this.name];
     const spb = 60 / tr.bpm / 4;
+    if (this.nextT < ctx.currentTime - 0.2) this.nextT = ctx.currentTime + 0.03;
     while (this.nextT < ctx.currentTime + 0.15) {
       this.scheduleStep(tr, this.step, this.nextT, spb);
       this.nextT += spb;
@@ -214,19 +258,21 @@ class MusicEngine {
   }
   scheduleStep(tr, step, t, spb) {
     const L = tr.lead[step];
-    if (L) this.note(this.midi(L[0]), 'square', L[1] * spb * 0.92, 0.2, t);
+    if (L) this.note(this.midi(L[0]), 'sine', L[1] * spb * 0.92, 0.19, t, -0.28, true);
     const bar = Math.floor(step / 16);
     if (tr.drive || step % 2 === 0) {
       let root = tr.bassRoots[bar];
       if (step === 62) root = tr.bassEnd;
       const oct = (!tr.drive && step % 16 === 4) ? 12 : 0;
-      this.note(this.midi(root + oct), 'triangle', (tr.drive ? 0.9 : 1.9) * spb, 0.24, t);
+      this.note(this.midi(root + oct), 'triangle', (tr.drive ? 0.9 : 1.9) * spb, 0.28, t, 0);
     }
+    if (step % 4 === 0) this.drum(t, false);
+    if (step % 8 === 4) this.drum(t, true);
     if (step % 4 === 2) this.hat(t, 0.05);
     else if (tr.drive && step % 2 === 0) this.hat(t, 0.03);
   }
   midi(m) { return 440 * Math.pow(2, (m - 69) / 12); }
-  note(freq, type, dur, vol, t) {
+  note(freq, type, dur, vol, t, pan = 0, fm = false) {
     try {
       const ctx = this.sfx.ctx;
       const o = ctx.createOscillator(); const g = ctx.createGain();
@@ -235,9 +281,30 @@ class MusicEngine {
       g.gain.linearRampToValueAtTime(vol, t + 0.01);
       g.gain.setValueAtTime(vol * 0.9, t + dur * 0.7);
       g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(g); g.connect(this.bus);
+      const p = ctx.createStereoPanner(); p.pan.value = pan;
+      o.connect(g); g.connect(p); p.connect(this.bus);
+      const send = ctx.createGain(); send.gain.value = fm ? 0.2 : 0.025; p.connect(send); send.connect(this.sfx.room);
+      let mod, mg;
+      if (fm) { mod = ctx.createOscillator(); mg = ctx.createGain(); mod.frequency.value = freq * 2;
+        mg.gain.setValueAtTime(freq * 1.3, t); mg.gain.exponentialRampToValueAtTime(3, t + dur);
+        mod.connect(mg); mg.connect(o.frequency); mod.start(t); mod.stop(t + dur + 0.02); }
+      o.onended = () => { o.disconnect(); g.disconnect(); p.disconnect(); send.disconnect(); if (mod) { mod.disconnect(); mg.disconnect(); } };
       o.start(t); o.stop(t + dur + 0.02);
     } catch (e) { }
+  }
+  drum(t, snare) {
+    const ctx = this.sfx.ctx;
+    if (snare) {
+      const src = ctx.createBufferSource(); src.buffer = this.sfx.noiseBuffer;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1900;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      src.connect(f); f.connect(g); g.connect(this.bus);
+      src.onended = () => { src.disconnect(); f.disconnect(); g.disconnect(); }; src.start(t); src.stop(t + 0.14);
+    }
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(snare ? 170 : 120, t); o.frequency.exponentialRampToValueAtTime(snare ? 80 : 42, t + 0.12);
+    g.gain.setValueAtTime(snare ? 0.14 : 0.46, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g); g.connect(this.bus); o.onended = () => { o.disconnect(); g.disconnect(); }; o.start(t); o.stop(t + 0.17);
   }
   hat(t, vol) {
     try {
@@ -250,7 +317,9 @@ class MusicEngine {
       }
       const src = ctx.createBufferSource(); src.buffer = this.nbuf;
       const g = ctx.createGain(); g.gain.value = vol;
-      src.connect(g); g.connect(this.bus);
+      const p = ctx.createStereoPanner(); p.pan.value = 0.42;
+      src.connect(g); g.connect(p); p.connect(this.bus);
+      src.onended = () => { src.disconnect(); g.disconnect(); p.disconnect(); };
       src.start(t);
     } catch (e) { }
   }
@@ -1129,6 +1198,11 @@ class Game {
       if (this.state === 'intro') this.state = 'play';
     };
     window.addEventListener('pointerdown', start);
+    document.getElementById('sound-toggle')?.addEventListener('click', () => { this.audio.init(); this.audio.toggleMute(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { this.audio.music.stopTrack(); if (this.audio.ctx?.state === 'running') this.audio.ctx.suspend().catch(() => {}); }
+      else if (this.audio.ctx) { this.audio.music.nextT = this.audio.ctx.currentTime + 0.08; this.audio.init(); }
+    });
     window.addEventListener('keydown', (e) => {
       start();
       if (e.key === ' ') e.preventDefault();
@@ -1138,7 +1212,7 @@ class Game {
         if (e.key === ' ') this.spacePress = true;
       }
       this.inputs[e.key] = true;
-      if (e.key === 'm' || e.key === 'M') this.audio.toggleMute();
+      if ((e.key === 'm' || e.key === 'M') && !e.repeat) this.audio.toggleMute();
       if (e.key === 'h' || e.key === 'H') this.showHitboxes = !this.showHitboxes;
       if (e.key === 'Enter') {
         if (this.state === 'lost' || this.state === 'won') this.resetWorld();
@@ -1304,13 +1378,13 @@ class Game {
     }
     if (p.guarding) {
       p.conexion = Math.max(0, p.conexion - Math.round(dmg * 0.2));
-      this.audio.block();
+      this.audio.position(p.x, this.camX); this.audio.block();
     } else {
       p.conexion = Math.max(0, p.conexion - dmg);
       p.state = 'HITSTUN';
       p.stateTimer = 0;
       p.currentAnim = 'idle1';
-      this.audio.hit();
+      this.audio.position(p.x, this.camX); this.audio.hit();
       this.shake = 5;
     }
     if (p.conexion <= 0) {
@@ -1332,7 +1406,7 @@ class Game {
       e.stateTimer = 0;
       e.kx = (e.x >= fromX ? 1 : -1) * knock;
     }
-    this.audio.hit();
+    this.audio.position(e.x, this.camX); this.audio.hit(!!e.big);
   }
 
   hitBoss(dmg, fromX, knock) {
@@ -1349,12 +1423,13 @@ class Game {
       b.stateTimer = 0;
       b.x += (b.x >= fromX ? 1 : -1) * Math.min(knock, 2);
     }
-    this.audio.hit();
+    this.audio.position(b.x, this.camX); this.audio.hit(true);
   }
 
   // --- actualización por frame ---
   update() {
     this.t++;
+    this.audio.position(this.player.x, this.camX);
     this.audio.musicEnsure(this.state === 'play' ? (this.bossActive ? 'boss' : (this.player.vehicle ? 'neon' : 'main')) : null);
 
     if (this.state === 'interlude') {
